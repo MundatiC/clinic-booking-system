@@ -391,6 +391,7 @@ The project owner made these calls. Some were made when the AI offered options, 
 | Memory-heavy runs (scanners, full stack) are run by Caleb or CI, never by the AI on the laptop, and no extra servers | Caleb's instruction, after Docker ran out of memory twice | [Running the security tools locally](#running-the-security-tools-locally) |
 | No AI co-author trailer on commits | Caleb's rule; the first commit was rewritten | [AI_LOG](AI_LOG.md) |
 | Use the *frontend-design* and *ponytail* skills | Caleb's request (he supplied the ponytail link) | [The booking UI](#the-booking-ui) |
+| Everything the *ponytail* skill drove counts as Caleb's: the smallest-complete-change calls (one static page with vanilla JS, no build and no CDN, decision 41; stdlib `smtplib` instead of an email SDK; no MFA, refresh tokens or account deletion yet), and whatever it made the AI skip, delete or simplify | Caleb's rule: he chose and supplied the skill | Decision 41, [Known limitations](#known-limitations) |
 | **Redesign the UI** from a Google Stitch export (Stitch also picked the theme), with minimal animations | Caleb's plan | Decision 49 |
 | Keep the Stitch export and prompts **out of the repo**, as a guide only, and build "stuff we need" from it | Caleb's own | Decision 49 |
 | Drop Stitch's made-up details; initials instead of photos | Chosen by Caleb from options | Decision 49 |
