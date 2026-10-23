@@ -123,7 +123,10 @@ class Appointment(Base):
 
     doctor: Mapped[Doctor] = relationship()
     events: Mapped[list["AppointmentEvent"]] = relationship(
-        back_populates="appointment", order_by="AppointmentEvent.id"
+        back_populates="appointment",
+        order_by="AppointmentEvent.id",
+        cascade="all, delete-orphan",
+        passive_deletes=True,  # the FK is ON DELETE CASCADE; let the database do it
     )
 
 

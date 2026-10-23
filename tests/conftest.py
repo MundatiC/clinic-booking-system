@@ -67,3 +67,29 @@ def session_factory(engine: Engine) -> Iterator[sessionmaker[Session]]:
 def db(session_factory: sessionmaker[Session]) -> Iterator[Session]:
     with session_factory() as s:
         yield s
+
+
+# ---- API fixtures -------------------------------------------------------------------
+
+from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+from app.core.clock import FixedClock  # noqa: E402
+from app.main import create_app  # noqa: E402
+from tests.utils import NOW  # noqa: E402
+
+
+@pytest.fixture
+def clock() -> FixedClock:
+    return FixedClock(NOW)
+
+
+@pytest.fixture
+def app(session_factory: sessionmaker[Session], clock: FixedClock) -> FastAPI:
+    return create_app(clock=clock)
+
+
+@pytest.fixture
+def client(app: FastAPI) -> Iterator[TestClient]:
+    with TestClient(app) as c:
+        yield c

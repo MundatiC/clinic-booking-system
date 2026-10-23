@@ -1,0 +1,22 @@
+from datetime import date, datetime
+
+from pydantic import BaseModel, Field
+
+
+class DoctorOut(BaseModel):
+    id: int = Field(examples=[1])
+    name: str = Field(examples=["Dr. Amina Odhiambo"])
+    specialty: str = Field(examples=["General Practice"])
+
+
+class SlotOut(BaseModel):
+    start: datetime = Field(examples=["2026-11-02T09:00:00+03:00"])
+    end: datetime = Field(examples=["2026-11-02T09:30:00+03:00"])
+
+
+class AvailabilityOut(BaseModel):
+    doctor_id: int
+    date: date
+    timezone: str = Field(examples=["Africa/Nairobi"])
+    slot_minutes: int = Field(examples=[30])
+    slots: list[SlotOut]
