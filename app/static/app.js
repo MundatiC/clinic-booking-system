@@ -176,7 +176,7 @@ async function route() {
   if (name === "book") await showBook();
   if (name === "appointments") await showMine();
   if (name === "schedule") showScheduleForm();
-  if (name === "verify") await runVerify();
+  if (name === "verify") showVerify();
 }
 
 // ---- booking ------------------------------------------------------------------
@@ -422,21 +422,29 @@ function onSubmit(id, handler) {
 
 const values = (form) => Object.fromEntries(new FormData(form));
 
-async function runVerify() {
-  const text = $("#verify-text");
-  const next = $("#verify-next");
-  next.hidden = true;
-  const token = pendingToken;
-  pendingToken = null;
-  if (!token) { text.textContent = "This page needs the link from your email."; next.hidden = false; return; }
-  text.textContent = "One moment…";
-  try {
-    const r = await api("POST", "/auth/verify", { token });
-    text.textContent = r.message;
-  } catch (err) {
-    text.textContent = err.message;
-  }
-  next.hidden = false;
+// Opening the link only shows a button; confirming takes a deliberate click. So link
+// scanners that run scripts, or a link someone else sends you, can't act for you.
+function showVerify() {
+  const hasToken = Boolean(pendingToken);
+  $("#verify-text").textContent = hasToken
+    ? "Confirm this is your email address to finish creating your account."
+    : "This page needs the link from your email.";
+  $("#verify-confirm").hidden = !hasToken;
+  $("#verify-next").hidden = hasToken;
+}
+
+async function confirmEmail(event) {
+  await busy(event.currentTarget, async () => {
+    const token = pendingToken;
+    pendingToken = null;
+    try {
+      $("#verify-text").textContent = (await api("POST", "/auth/verify", { token })).message;
+    } catch (err) {
+      $("#verify-text").textContent = err.message;
+    }
+    $("#verify-confirm").hidden = true;
+    $("#verify-next").hidden = false;
+  });
 }
 
 function wireForms() {
@@ -486,6 +494,7 @@ function wireForms() {
     go("signin");
   });
   $("#schedule-form").addEventListener("submit", loadSchedule);
+  $("#verify-confirm").addEventListener("click", confirmEmail);
   $("#confirm-yes").addEventListener("click", confirmPick);
   $("#confirm-no").addEventListener("click", () => { $("#confirm").hidden = true; state.pick = null; });
   $("#day").addEventListener("change", (e) => { if (e.target.value) { setDay(e.target.value); loadStrip(); } });

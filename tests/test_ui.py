@@ -17,11 +17,12 @@ JS = (STATIC / "app.js").read_text(encoding="utf-8")
 
 def test_page_has_no_inline_script_or_style() -> None:
     # The CSP allows only same-origin files, so inline code would be blocked anyway.
-    scripts = re.findall(r"<script\b([^>]*)>", HTML)
-    assert scripts and all("src=" in attrs for attrs in scripts)
-    assert "<style" not in HTML
-    assert not re.search(r"\sstyle=", HTML)
-    assert not re.search(r"\son[a-z]+=", HTML)  # no inline event handlers
+    # Case-insensitive: HTML tag and attribute names are (CodeQL py/bad-tag-filter).
+    scripts = re.findall(r"<script\b([^>]*)>", HTML, re.IGNORECASE)
+    assert scripts and all("src=" in attrs.lower() for attrs in scripts)
+    assert "<style" not in HTML.lower()
+    assert not re.search(r"\sstyle=", HTML, re.IGNORECASE)
+    assert not re.search(r"\son[a-z]+=", HTML, re.IGNORECASE)  # no inline event handlers
 
 
 def test_script_never_parses_html_from_strings() -> None:
@@ -31,7 +32,7 @@ def test_script_never_parses_html_from_strings() -> None:
 
 
 def test_assets_are_local() -> None:
-    assert not re.search(r"""(src|href)=["']https?://""", HTML)
+    assert not re.search(r"""(src|href)=["']https?://""", HTML, re.IGNORECASE)
     assert "url(http" not in (STATIC / "app.css").read_text(encoding="utf-8")
 
 
@@ -40,6 +41,13 @@ def test_font_licence_ships_with_the_font() -> None:
     assert "SIL Open Font License" in (STATIC / "OFL-atkinson-hyperlegible-next.txt").read_text(
         encoding="utf-8"
     )
+
+
+def test_verify_link_needs_a_click() -> None:
+    # Opening an emailed link must not act by itself (link scanners, links from others).
+    assert 'id="verify-confirm"' in HTML
+    route = JS[JS.index("async function route()") : JS.index("// ---- booking")]
+    assert "/auth/verify" not in route and "confirmEmail" not in route
 
 
 # ---- served by the app ---------------------------------------------------------
