@@ -134,3 +134,6 @@ Caleb gave Claude Code one long, detailed brief: the assessment's verbatim requi
     - Emails still used the old purple palette.
     - *My appointments* asked for only 50 visits (now the API's maximum, 100).
     - Not fixed, by Caleb's choice: every demo sign-in emails `demo.patient@example.com`, which can't receive mail.
+40. **Second repo audit (run by Caleb), findings counted as his.** Both fixed:
+    - Staff could not book for anyone who had signed up online: `POST /patients` answered `409 PATIENT_EXISTS` without an id, and there is no patient lookup. The 409 now includes the existing `patient_id` (the route is staff-only, so nothing leaks to patients); tests cover a walk-in duplicate and the seeded online patient.
+    - Four ORM relationships nothing read (`Doctor.working_hours`, `WorkingHours.doctor`, `Appointment.events`, `AppointmentEvent.appointment`) were deleted. The schema is unchanged (`alembic check` in CI).
