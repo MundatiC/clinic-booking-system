@@ -2,7 +2,7 @@
 # OWASP ZAP API scan (DAST) against the docker compose stack, authenticated as staff.
 #
 #   docker compose up -d --build      # with RATE_LIMIT_ENABLED=false for the scan
-#   scripts/zap_scan.sh               # report: zap/report.html, zap/report.json
+#   scripts/zap_scan.sh               # reports: zap/report.html (API), zap/ui-report.html (UI)
 #
 # Imports /openapi.json, spiders and actively attacks every operation (SQLi, XSS,
 # path traversal, header checks, ...). Fails on any alert configured as FAIL in
@@ -33,11 +33,24 @@ auth="$auth -config replacer.full_list(0).matchstr=Authorization"
 auth="$auth -config replacer.full_list(0).regex=false"
 auth="$auth -config replacer.full_list(0).replacement=Bearer\ $token"
 
+# Scan a copy of the spec without /auth/logout: calling it would revoke the scan's own
+# token. (ZAP requests every operation while importing the spec, before any exclusion
+# hook applies; a hook-based exclusion left 2,350 of 3,215 requests as 401 in CI.)
+# Logout itself is covered by tests/security.
+curl -fsS "$HOST_URL/openapi.json" |
+  "$PYTHON" -c 'import json,sys; s=json.load(sys.stdin); s["paths"].pop("/auth/logout"); json.dump(s, sys.stdout)' \
+  > zap/openapi.json
+
 MSYS_NO_PATHCONV=1 docker run --rm --network "$NETWORK" \
   -v "$(pwd)/zap:/zap/wrk:rw" \
   -v "$(pwd)/.zap/rules.tsv:/zap/wrk/rules.tsv:ro" \
-  -v "$(pwd)/.zap/hooks.py:/zap/wrk/hooks.py:ro" \
   "$IMAGE" zap-api-scan.py \
-  -t "$API_URL/openapi.json" -f openapi \
-  -c rules.tsv -r report.html -J report.json \
-  --hook=/zap/wrk/hooks.py -z "$auth"
+  -t /zap/wrk/openapi.json -f openapi -O "$API_URL" \
+  -c rules.tsv -r report.html -J report.json -z "$auth"
+
+# The booking UI page: passive baseline (headers, CSP, cookies, JS libraries, ...).
+MSYS_NO_PATHCONV=1 docker run --rm --network "$NETWORK" \
+  -v "$(pwd)/zap:/zap/wrk:rw" \
+  -v "$(pwd)/.zap/rules.tsv:/zap/wrk/rules.tsv:ro" \
+  "$IMAGE" zap-baseline.py \
+  -t "$API_URL/" -c rules.tsv -r ui-report.html -J ui-report.json

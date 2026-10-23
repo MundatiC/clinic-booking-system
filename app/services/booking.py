@@ -26,7 +26,7 @@ from app.repositories import doctors as doctors_repo
 from app.repositories import patients as patients_repo
 from app.services import slots
 from app.services.notifications import Notifier
-from app.services.slots import Slot
+from app.services.slots import Slot, Window
 
 
 class BookingService:
@@ -42,25 +42,23 @@ class BookingService:
 
     # ---- queries -------------------------------------------------------------------
 
-    def availability(self, doctor_id: int, day: date) -> list[Slot]:
-        """Free slots for the doctor on a clinic-local date: 2 queries, set difference."""
+    def availability(self, doctor_id: int, day: date) -> tuple[list[Window], list[Slot]]:
+        """The day's working windows and its free slots: 2 queries, set difference."""
         self._active_doctor(doctor_id)
-        now = self.clock.now()
-        today = now.astimezone(self.tz).date()
-        if day < today or day > today + timedelta(days=self.settings.max_advance_days):
-            return []
-
         windows = [
             (w.start_time, w.end_time)
             for w in doctors_repo.windows_for(self.session, doctor_id, day.weekday())
         ]
-        if not windows:
-            return []
+        now = self.clock.now()
+        today = now.astimezone(self.tz).date()
+        horizon = today + timedelta(days=self.settings.max_advance_days)
+        if not windows or day < today or day > horizon:
+            return windows, []
         candidates = slots.generate_slots(day, windows, self.tz, self.settings.slot_minutes)
         day_start, day_end = slots.local_day_bounds_utc(day, self.tz)
         taken = appointments_repo.booked_starts(self.session, doctor_id, day_start, day_end)
         earliest = now + timedelta(minutes=self.settings.min_lead_time_minutes)
-        return [(s, e) for s, e in candidates if s not in taken and s >= earliest]
+        return windows, [(s, e) for s, e in candidates if s not in taken and s >= earliest]
 
     def get(self, user: User, appointment_id: uuid.UUID) -> Appointment:
         return _visible(appointments_repo.get(self.session, appointment_id), user, appointment_id)

@@ -24,6 +24,13 @@ QUIET_PATHS = frozenset({"/health", "/ready"})
 # Swagger UI / ReDoc load assets from a CDN; they get no CSP from us.
 _DOC_PATHS = ("/docs", "/redoc", "/openapi.json")
 
+# The booking UI: own-origin scripts, styles and fonts only; no inline code at all.
+PAGE_CSP = (
+    "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; "
+    "img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; "
+    "frame-ancestors 'none'"
+)
+
 _BASE_SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
@@ -62,7 +69,12 @@ class RequestContextMiddleware:
                     headers.setdefault(name, value)
                 if self.hsts:
                     headers.setdefault("Strict-Transport-Security", "max-age=31536000")
-                if headers.get("content-type", "").startswith("application/json") and not (
+                content_type = headers.get("content-type", "")
+                if content_type.startswith("text/html") and not path.startswith(_DOC_PATHS):
+                    headers.setdefault("Content-Security-Policy", PAGE_CSP)
+                    # Same-origin assets only, so full cross-origin isolation is free (ZAP 90004).
+                    headers.setdefault("Cross-Origin-Embedder-Policy", "require-corp")
+                if content_type.startswith("application/json") and not (
                     path.startswith(_DOC_PATHS)
                 ):
                     headers.setdefault(
