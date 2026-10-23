@@ -55,12 +55,13 @@ def availability(
     settings: SettingsDep,
 ) -> AvailabilityOut:
     tz = settings.tz
-    free = service.availability(doctor_id, date)
+    windows, free = service.availability(doctor_id, date)
     return AvailabilityOut(
         doctor_id=doctor_id,
         date=date,
         timezone=tz.key,
         slot_minutes=settings.slot_minutes,
+        working_hours=[f"{start:%H:%M}-{end:%H:%M}" for start, end in windows],
         slots=[SlotOut(start=s.astimezone(tz), end=e.astimezone(tz)) for s, e in free],
     )
 

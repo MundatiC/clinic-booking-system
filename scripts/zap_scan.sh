@@ -41,3 +41,10 @@ MSYS_NO_PATHCONV=1 docker run --rm --network "$NETWORK" \
   -t "$API_URL/openapi.json" -f openapi \
   -c rules.tsv -r report.html -J report.json \
   --hook=/zap/wrk/hooks.py -z "$auth"
+
+# The booking UI page: passive baseline (headers, CSP, cookies, JS libraries, ...).
+MSYS_NO_PATHCONV=1 docker run --rm --network "$NETWORK" \
+  -v "$(pwd)/zap:/zap/wrk:rw" \
+  -v "$(pwd)/.zap/rules.tsv:/zap/wrk/rules.tsv:ro" \
+  "$IMAGE" zap-baseline.py \
+  -t "$API_URL/" -c rules.tsv -r ui-report.html -J ui-report.json

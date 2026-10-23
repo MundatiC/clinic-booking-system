@@ -1,7 +1,11 @@
 """Application factory."""
 
+from pathlib import Path
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api import appointments, auth, doctors, health, patients
 from app.api.deps import check_origin
@@ -12,6 +16,8 @@ from app.core.logging import configure_logging
 from app.core.mailer import Mailer, SmtpMailer
 from app.core.middleware import RequestContextMiddleware
 from app.core.ratelimit import RateLimiter, parse_rate
+
+STATIC = Path(__file__).parent / "static"
 
 DESCRIPTION = """
 Book, cancel and reschedule 30-minute appointments with the clinic's doctors.
@@ -68,6 +74,14 @@ def create_app(
 
     for module in (health, auth, doctors, appointments, patients):
         app.include_router(module.router)
+
+    # The booking UI: one static page plus its assets, same origin as the API.
+    app.mount("/assets", StaticFiles(directory=STATIC), name="assets")
+
+    @app.get("/", include_in_schema=False)
+    def index() -> FileResponse:
+        return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
+
     return app
 
 
