@@ -111,3 +111,4 @@ def test_staff_schedule(client: TestClient) -> None:
     assert r.status_code == 200
     (item,) = r.json()
     assert item["patient_name"] == "Demo Patient" and item["start_at"].endswith("09:00:00+03:00")
+    assert item["patient_phone"] == "+254700000000"

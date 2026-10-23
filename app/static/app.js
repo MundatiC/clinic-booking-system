@@ -7,6 +7,7 @@ const TZ = "Africa/Nairobi";
 const fmtDay = new Intl.DateTimeFormat("en-GB", { timeZone: TZ, weekday: "long", day: "numeric", month: "long" });
 const fmtTime = new Intl.DateTimeFormat("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 const fmtIsoDay = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" });
+const fmtWeekday = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "short" });
 const MAX_DAYS = 90;
 
 const state = {
@@ -35,6 +36,21 @@ function el(tag, props = {}, ...children) {
   return node;
 }
 
+// An icon from the sprite in index.html.
+function icon(name) {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("class", "icon");
+  svg.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS(NS, "use");
+  use.setAttribute("href", `#i-${name}`);
+  svg.append(use);
+  return svg;
+}
+
+const initials = (name) => name.replace(/^Dr\.?\s+/i, "").split(/\s+/).filter(Boolean)
+  .slice(0, 2).map((w) => w[0].toUpperCase()).join("");
+
 // ---- dates (all in clinic time) -----------------------------------------------
 
 const todayIso = () => fmtIsoDay.format(new Date());
@@ -43,10 +59,16 @@ function addDays(iso, n) {
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }
+const daysBetween = (a, b) => Math.round((new Date(`${b}T00:00:00Z`) - new Date(`${a}T00:00:00Z`)) / 86400000);
 const dayLabel = (iso) => fmtDay.format(new Date(`${iso}T12:00:00+03:00`));
 const timeOf = (isoDateTime) => fmtTime.format(new Date(isoDateTime));
 const dayOf = (isoDateTime) => fmtIsoDay.format(new Date(isoDateTime));
-const doctorName = (id) => state.doctors.find((d) => d.id === id)?.name ?? `Doctor ${id}`;
+const doctorOf = (id) => state.doctors.find((d) => d.id === id);
+const doctorName = (id) => doctorOf(id)?.name ?? `Doctor ${id}`;
+function relDay(iso) {
+  const n = daysBetween(todayIso(), iso);
+  return n === 0 ? "Today" : n === 1 ? "Tomorrow" : n > 1 ? `In ${n} days` : "";
+}
 
 // ---- API ----------------------------------------------------------------------
 
@@ -76,7 +98,7 @@ async function api(method, path, body) {
     const err = new ApiError(res.status, e.code ?? `HTTP_${res.status}`, e.message ?? "Something went wrong. Please try again.", e.details ?? {});
     if (err.code === "NOT_AUTHENTICATED" && state.me) {
       setMe(null);
-      flash("Your session ended. Sign in again to continue.", true);
+      flash("Sign in again to continue.", "info", "Your session ended");
       state.returnTo = currentView();
       go("signin");
     }
@@ -87,10 +109,15 @@ async function api(method, path, body) {
 
 // ---- feedback -----------------------------------------------------------------
 
-function flash(message, isError = false) {
+const FLASH_ICONS = { ok: "check", error: "alert", info: "calendar" };
+
+// kind: "ok" | "error" | "info"; title is optional.
+function flash(message, kind = "ok", title = "") {
   const box = $("#flash");
-  box.textContent = message;
-  box.classList.toggle("is-error", isError);
+  $("#flash-title").textContent = title;
+  $("#flash-text").textContent = message;
+  box.className = `banner is-${kind}`;
+  $("use", box).setAttribute("href", `#i-${FLASH_ICONS[kind]}`);
   box.hidden = !message;
   box.dataset.at = String(Date.now());
   if (message) box.scrollIntoView({ block: "nearest" }); // results land below the fold
@@ -129,6 +156,9 @@ function setMe(me) {
       (when === "anon" && !me) || (when === "user" && me) || (when === role)
     );
   });
+  const name = me?.patient?.full_name ?? me?.email.split("@")[0] ?? "";
+  $("#me-name").textContent = name;
+  $("#me-initials").textContent = name ? initials(name) : "";
 }
 
 async function loadMe() {
@@ -140,7 +170,7 @@ async function loadMe() {
 const TITLES = {
   book: "Book an appointment", appointments: "My appointments", schedule: "Day schedule",
   signin: "Sign in", signup: "Create an account", "check-email": "Check your email",
-  verify: "Confirm your email", forgot: "Reset your password", reset: "Choose a new password",
+  verify: "Confirm your email", forgot: "Forgot your password", reset: "Choose a new password",
 };
 
 function parseHash() {
@@ -180,6 +210,8 @@ async function route() {
     else a.removeAttribute("aria-current");
   });
   document.title = `${TITLES[name]}: The Clinic`;
+  document.body.dataset.page = name; // page-specific accents in CSS (the logo)
+  window.scrollTo(0, 0); // a new view starts at its top, not where the last one was scrolled
   $("#main").focus({ preventScroll: true });
 
   if (name === "book") await showBook();
@@ -191,16 +223,18 @@ async function route() {
 // ---- booking ------------------------------------------------------------------
 
 function renderDoctors() {
-  const box = $("#doctors");
-  box.replaceChildren(...state.doctors.map((d) =>
-    el("label", { class: "doctor" },
+  $("#doctor-count").textContent = `${state.doctors.length} doctors`;
+  $("#doctors").replaceChildren(...state.doctors.map((d) =>
+    el("label", { class: "doc" },
       el("input", {
         type: "radio", name: "doctor", value: d.id,
         checked: d.id === state.doctorId,
         disabled: Boolean(state.reschedule) && d.id !== state.doctorId,
         onchange: () => { state.doctorId = d.id; state.pick = null; loadStrip(); },
       }),
-      el("div", {}, el("strong", { text: d.name }), el("span", { text: d.specialty })),
+      el("span", { class: "avatar", "aria-hidden": "true", text: initials(d.name) }),
+      el("span", { class: "doc-text" }, el("span", { class: "doc-name", text: d.name }), el("span", { class: "doc-spec", text: d.specialty })),
+      el("span", { class: "doc-mark", "aria-hidden": "true" }, icon("check")),
     )));
 }
 
@@ -209,12 +243,29 @@ function setDay(iso) {
   const max = addDays(min, MAX_DAYS);
   const day = iso < min ? min : iso > max ? max : iso;
   state.day = day;
-  const input = $("#day");
-  Object.assign(input, { min, max, value: day });
+  Object.assign($("#day"), { min, max, value: day });
   $("#prev-day").disabled = day <= min;
   $("#next-day").disabled = day >= max;
   $("#day-label").textContent = dayLabel(day);
+  $("#day-sub").textContent = day === min ? "Today" : "";
+  renderWeek(min, max);
   state.pick = null;
+}
+
+// Monday to Sunday around the chosen day; out-of-range days can't be picked.
+function renderWeek(min, max) {
+  const weekday = (new Date(`${state.day}T00:00:00Z`).getUTCDay() + 6) % 7; // Monday = 0
+  const monday = addDays(state.day, -weekday);
+  $("#week").replaceChildren(...Array.from({ length: 7 }, (_, i) => {
+    const iso = addDays(monday, i);
+    return el("button", {
+      type: "button", "aria-pressed": String(iso === state.day), "aria-label": dayLabel(iso),
+      disabled: iso < min || iso > max,
+      onclick: () => { setDay(iso); loadStrip(); },
+    },
+    el("span", { class: "wd", text: fmtWeekday.format(new Date(`${iso}T12:00:00Z`)) }),
+    el("span", { class: "dn", text: String(Number(iso.slice(8))) }));
+  }));
 }
 
 async function showBook() {
@@ -233,10 +284,8 @@ async function showBook() {
   note.hidden = !state.reschedule;
   if (state.reschedule) {
     const a = state.reschedule;
-    note.replaceChildren(
-      `Choosing a new time for your appointment on ${dayLabel(dayOf(a.start_at))} at ${timeOf(a.start_at)}. `,
-      el("button", { type: "button", class: "link", text: "Keep the current time", onclick: () => { state.reschedule = null; go("appointments"); } }),
-    );
+    $("#reschedule-text").textContent =
+      `Choosing a new time for your ${dayLabel(dayOf(a.start_at))} ${timeOf(a.start_at)} appointment with ${doctorName(a.doctor_id)}.`;
   }
   await loadStrip();
 }
@@ -250,80 +299,102 @@ function windowSlots(range) {
   return out;
 }
 
+const gapRow = (from, to) =>
+  el("li", { class: "gap" }, icon("cup"), el("span", { text: `Closed ${from}–${to}` }), el("span", { class: "tag", text: "Break" }));
+
 async function loadStrip() {
   const strip = $("#strip");
+  const count = $("#free-count");
+  const hours = $("#day-hours");
   $("#confirm").hidden = true;
+  count.hidden = true;
+  hours.hidden = true;
   if (!state.doctorId) return;
   const doctor = doctorName(state.doctorId);
-  $("#strip-title").textContent = `${doctor}, ${dayLabel(state.day)}`;
+  $("#strip-sub").textContent = `${doctor} · ${dayLabel(state.day)}`;
   strip.setAttribute("aria-busy", "true");
-  strip.replaceChildren(el("p", { class: "strip-empty", text: "Loading times…" }));
+  strip.replaceChildren(el("li", { class: "strip-empty", text: "Loading times…" }));
   let data;
   try {
     data = await api("GET", `/doctors/${state.doctorId}/availability?date=${state.day}`);
   } catch (err) {
-    strip.replaceChildren(el("p", { class: "strip-empty error", text: err.message }));
+    strip.replaceChildren(el("li", { class: "strip-empty error", text: err.message }));
     return;
   } finally {
     strip.removeAttribute("aria-busy");
   }
 
   if (!data.working_hours.length) {
-    strip.replaceChildren(el("p", { class: "strip-empty", text: `${doctor} doesn't work on ${dayLabel(state.day)}. Try another day.` }));
+    strip.replaceChildren(el("li", { class: "strip-empty", text: `${doctor} doesn't work on ${dayLabel(state.day)}. Try another day.` }));
     return;
   }
+  const ranges = data.working_hours.map((r) => r.replace("-", "–"));
+  $("span", hours).textContent = `${doctor} works ${ranges.join(" and ")} on this day.`;
+  hours.hidden = false;
+  count.textContent = `${data.slots.length} free`;
+  count.hidden = false;
+
   const free = new Map(data.slots.map((s) => [timeOf(s.start), s]));
   const current = state.reschedule && dayOf(state.reschedule.start_at) === state.day && state.reschedule.doctor_id === state.doctorId
     ? timeOf(state.reschedule.start_at) : null;
+  const verb = state.reschedule ? "Move to" : "Book";
 
   const parts = [];
   data.working_hours.forEach((range, i) => {
-    if (i > 0) {
-      const closedFrom = data.working_hours[i - 1].split("-")[1];
-      parts.push(el("p", { class: "gap", text: `Closed ${closedFrom}–${range.split("-")[0]}` }));
+    if (i > 0) parts.push(gapRow(data.working_hours[i - 1].split("-")[1], range.split("-")[0]));
+    for (const hhmm of windowSlots(range)) {
+      const slot = free.get(hhmm);
+      if (hhmm === current) {
+        parts.push(el("li", { class: "slot is-current" }, el("p", { class: "slot-row" },
+          el("time", { text: hhmm }), el("span", { class: "what", text: "Your current time" }), el("span", { class: "tag", text: "Current" }))));
+      } else if (!slot) {
+        // Not free: either booked, or already too close (bookings need an hour's notice).
+        const late = new Date(`${state.day}T${hhmm}:00+03:00`) < Date.now() + 3600000;
+        parts.push(el("li", { class: "slot is-off" }, el("p", { class: "slot-row" },
+          el("time", { text: hhmm }), el("span", { class: "what", text: late ? "Too late to book" : "Not available" }), el("span", { class: "tag", text: late ? "Past" : "Taken" }))));
+      } else {
+        parts.push(el("li", { class: "slot" }, el("button", {
+          type: "button", class: "slot-btn", "aria-pressed": "false",
+          "aria-label": `${verb} ${hhmm} with ${doctor}`,
+          onclick: (e) => choose(slot, e.currentTarget),
+        }, el("time", { datetime: slot.start, text: hhmm }), el("span", { class: "what", text: `${verb} ${hhmm}` }), el("span", { class: "tag", text: "Free" }))));
+      }
     }
-    parts.push(el("ol", { class: "window", "aria-label": `Times from ${range.replace("-", " to ")}` },
-      ...windowSlots(range).map((hhmm) => {
-        const slot = free.get(hhmm);
-        if (hhmm === current) {
-          return el("li", { class: "slot is-current" }, el("time", { text: hhmm }), el("span", { text: "Your current time" }));
-        }
-        if (!slot) {
-          return el("li", { class: "slot is-off" }, el("time", { text: hhmm }), el("span", { text: "Not available" }));
-        }
-        return el("li", { class: "slot is-free" },
-          el("time", { datetime: slot.start, text: hhmm }),
-          el("button", {
-            type: "button", class: "ghost", text: state.reschedule ? `Move to ${hhmm}` : `Book ${hhmm}`,
-            "aria-label": `${state.reschedule ? "Move to" : "Book"} ${hhmm} with ${doctor}`,
-            onclick: () => choose(slot),
-          }));
-      })));
   });
   if (!data.slots.length) {
-    parts.push(el("p", { class: "strip-empty", text: "No free times left on this day. Try the next day." }));
+    parts.push(el("li", { class: "strip-empty", text: "No free times left on this day. Try the next day." }));
   }
   strip.replaceChildren(...parts);
 }
 
-function choose(slot) {
+function choose(slot, button) {
   state.pick = slot;
+  $$(".slot-btn", $("#strip")).forEach((b) => {
+    const on = b === button;
+    b.setAttribute("aria-pressed", String(on));
+    $(".tag", b).textContent = on ? "Selected" : "Free";
+  });
   const box = $("#confirm");
   const yes = $("#confirm-yes");
-  const what = `${dayLabel(state.day)} at ${timeOf(slot.start)} with ${doctorName(state.doctorId)}.`;
+  const note = $("#confirm-text");
+  $("#confirm-when").textContent = `${dayLabel(state.day)} at ${timeOf(slot.start)}`;
+  $("#confirm-who").textContent = `with ${doctorName(state.doctorId)}`;
+  note.hidden = true;
+  yes.hidden = false;
   if (!state.me) {
-    $("#confirm-text").textContent = `${what} Sign in or create an account to book it.`;
-    yes.textContent = "Sign in to book";
+    note.textContent = "Sign in or create an account to book it.";
+    note.hidden = false;
+    $("span", yes).textContent = "Sign in to book";
   } else if (state.me.role === "staff") {
-    $("#confirm-text").textContent = `${what} Staff book for walk-in patients through the API (POST /appointments with patient_id).`;
+    note.textContent = "Staff book for walk-in patients through the API (POST /appointments with patient_id).";
+    note.hidden = false;
     yes.hidden = true;
   } else {
-    $("#confirm-text").textContent = state.reschedule ? `Move your appointment to ${what}` : `Book ${what}`;
-    yes.textContent = state.reschedule ? "Move appointment" : "Book appointment";
-    yes.hidden = false;
+    $("span", yes).textContent = state.reschedule ? "Move appointment" : "Book appointment";
   }
   box.hidden = false;
-  yes.focus();
+  box.scrollIntoView({ block: "nearest" });
+  (yes.hidden ? $("#confirm-no") : yes).focus({ preventScroll: true });
 }
 
 async function confirmPick() {
@@ -334,15 +405,16 @@ async function confirmPick() {
       if (state.reschedule) {
         const moved = await api("PATCH", `/appointments/${state.reschedule.id}/reschedule`, { start_at: slot.start });
         state.reschedule = null;
-        flash(`Moved: ${dayLabel(dayOf(moved.start_at))} at ${timeOf(moved.start_at)}. We've emailed you the new time.`);
+        flash(`Now ${dayLabel(dayOf(moved.start_at))} at ${timeOf(moved.start_at)}. We've emailed you the new time.`, "ok", "Appointment moved");
         go("appointments");
         return;
       }
       const booked = await api("POST", "/appointments", { doctor_id: state.doctorId, start_at: slot.start });
-      flash(`Booked: ${dayLabel(dayOf(booked.start_at))} at ${timeOf(booked.start_at)} with ${doctorName(booked.doctor_id)}. A confirmation email is on its way.`);
+      flash(`${dayLabel(dayOf(booked.start_at))} at ${timeOf(booked.start_at)} with ${doctorName(booked.doctor_id)}. A confirmation email is on its way.`, "ok", "Appointment booked");
       await loadStrip();
     } catch (err) {
-      flash(err.message, true);
+      const title = err.code === "SLOT_TAKEN" ? "That time was just taken" : "Couldn't book that time";
+      flash(err.message, "error", title);
       if (err.code === "SLOT_TAKEN" || err.code === "TOO_SOON") await loadStrip();
     }
   });
@@ -350,45 +422,65 @@ async function confirmPick() {
 
 // ---- visit lists ----------------------------------------------------------------
 
-function visitItem(appt, { who, canMove }) {
-  const node = $("#visit-template").content.firstElementChild.cloneNode(true);
-  $(".date", node).textContent = dayLabel(dayOf(appt.start_at));
-  $(".time", node).textContent = `${timeOf(appt.start_at)}–${timeOf(appt.end_at)}`;
-  $(".who", node).textContent = who;
+// The inline "cancel with a reason" form shared by both lists.
+function wireCancel(node, appt, onCancelled) {
   const form = $(".cancel-form", node);
-  const move = $('[data-act="reschedule"]', node);
-  move.hidden = !canMove;
-  move.addEventListener("click", () => {
-    state.reschedule = appt;
-    state.doctorId = appt.doctor_id;
-    setDay(dayOf(appt.start_at));
-    go("book");
-  });
-  $('[data-act="cancel"]', node).addEventListener("click", () => { form.hidden = false; form.elements.reason.focus(); });
-  $('[data-act="keep"]', node).addEventListener("click", () => { form.hidden = true; formError(form, null); });
+  const open = $('[data-act="cancel"]', node);
+  $(".cancel-title span", form).textContent = `Cancel ${dayLabel(dayOf(appt.start_at))} at ${timeOf(appt.start_at)}?`;
+  open.addEventListener("click", () => { form.hidden = false; open.hidden = true; form.elements.reason.focus(); });
+  $('[data-act="keep"]', node).addEventListener("click", () => { form.hidden = true; open.hidden = false; formError(form, null); open.focus(); });
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     await busy($('button[type="submit"]', form), async () => {
       try {
         await api("PATCH", `/appointments/${appt.id}/cancel`, { reason: form.elements.reason.value });
-        const list = node.parentElement;
         node.remove();
-        list.nextElementSibling.hidden = list.children.length > 0; // the list's "nothing here" note
-        flash(`Cancelled your ${dayLabel(dayOf(appt.start_at))} ${timeOf(appt.start_at)} appointment. The time is free for someone else now.`);
+        onCancelled();
       } catch (err) { formError(form, err); }
     });
+  });
+}
+
+function visitItem(appt) {
+  const node = $("#visit-template").content.firstElementChild.cloneNode(true);
+  const doctor = doctorOf(appt.doctor_id);
+  const name = doctorName(appt.doctor_id);
+  $(".avatar", node).textContent = initials(name);
+  $(".rel", node).textContent = relDay(dayOf(appt.start_at));
+  $(".spec", node).textContent = doctor?.specialty ?? "";
+  $(".who", node).textContent = name;
+  $(".date", node).textContent = dayLabel(dayOf(appt.start_at));
+  $(".time", node).textContent = `${timeOf(appt.start_at)}–${timeOf(appt.end_at)} Nairobi time`;
+  $('[data-act="reschedule"]', node).addEventListener("click", () => {
+    state.reschedule = appt;
+    state.doctorId = appt.doctor_id;
+    setDay(dayOf(appt.start_at));
+    go("book");
+  });
+  wireCancel(node, appt, () => {
+    countMine();
+    flash(`Your ${dayLabel(dayOf(appt.start_at))} ${timeOf(appt.start_at)} appointment is cancelled. The time is free for someone else now.`, "ok", "Appointment cancelled");
   });
   return node;
 }
 
+function countMine() {
+  const n = $("#my-list").children.length;
+  $("#my-count").textContent = n === 1 ? "1 visit" : `${n} visits`;
+  $("#my-count").hidden = n === 0;
+  $("#my-empty").hidden = n > 0;
+}
+
 async function showMine() {
   const list = $("#my-list");
+  $("#my-empty").hidden = true;
+  $("#my-count").hidden = true;
   list.replaceChildren(el("li", { class: "muted", text: "Loading…" }));
   try {
     if (!state.doctors.length) state.doctors = await api("GET", "/doctors");
     const page = await api("GET", `/patients/${state.me.patient.id}/appointments?limit=50`);
-    list.replaceChildren(...page.items.map((a) => visitItem(a, { who: doctorName(a.doctor_id), canMove: true })));
-    $("#my-empty").hidden = page.items.length > 0;
+    list.replaceChildren(...page.items.map(visitItem));
+    countMine();
   } catch (err) {
     list.replaceChildren(el("li", { class: "error", text: err.message }));
   }
@@ -398,22 +490,65 @@ async function showScheduleForm() {
   if (!state.doctors.length) state.doctors = await api("GET", "/doctors");
   const select = $("#schedule-doctor");
   if (!select.options.length) {
-    select.replaceChildren(...state.doctors.map((d) => el("option", { value: d.id, text: `${d.name}, ${d.specialty}` })));
+    select.replaceChildren(...state.doctors.map((d) => el("option", { value: d.id, text: `${d.name} · ${d.specialty}` })));
     $("#schedule-day").value = todayIso();
+    $("#schedule-form").requestSubmit(); // open on today's schedule
   }
+}
+
+function rowItem(appt) {
+  const node = $("#row-template").content.firstElementChild.cloneNode(true);
+  $(".time", node).textContent = `${timeOf(appt.start_at)} – ${timeOf(appt.end_at)}`;
+  $(".who", node).textContent = appt.patient_name;
+  const phone = $(".phone", node);
+  phone.href = `tel:${appt.patient_phone}`;
+  $("span", phone).textContent = appt.patient_phone;
+  wireCancel(node, appt, () => {
+    countSchedule();
+    flash(`${appt.patient_name}'s ${timeOf(appt.start_at)} appointment is cancelled.`, "ok", "Appointment cancelled");
+  });
+  return node;
+}
+
+function countSchedule() {
+  const n = $$("#schedule-list > .row").length;
+  $("#schedule-count").textContent = String(n);
+  $("#schedule-stats").hidden = false;
+  $("#schedule-cols").hidden = n === 0;
+  $("#schedule-empty").hidden = n > 0;
 }
 
 async function loadSchedule(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const list = $("#schedule-list");
+  const error = $("#schedule-error");
+  const doctorId = form.elements["schedule-doctor"].value;
+  const day = form.elements["schedule-day"].value;
+  error.hidden = true;
   await busy($('button[type="submit"]', form), async () => {
     try {
-      const items = await api("GET", `/doctors/${form.elements["schedule-doctor"].value}/appointments?date=${form.elements["schedule-day"].value}`);
-      list.replaceChildren(...items.map((a) => visitItem(a, { who: a.patient_name, canMove: false })));
-      $("#schedule-empty").hidden = items.length > 0;
+      const [items, avail] = await Promise.all([
+        api("GET", `/doctors/${doctorId}/appointments?date=${day}`),
+        api("GET", `/doctors/${doctorId}/availability?date=${day}`),
+      ]);
+      // Rows in time order, with the doctor's breaks between working windows.
+      const rows = [];
+      const windows = avail.working_hours;
+      let next = 1;
+      for (const a of items) {
+        while (next < windows.length && timeOf(a.start_at) >= windows[next].split("-")[0]) {
+          rows.push(gapRow(windows[next - 1].split("-")[1], windows[next].split("-")[0]));
+          next += 1;
+        }
+        rows.push(rowItem(a));
+      }
+      list.replaceChildren(...(items.length ? rows : []));
+      countSchedule();
     } catch (err) {
-      list.replaceChildren(el("li", { class: "error", text: err.message }));
+      list.replaceChildren();
+      error.textContent = err.message;
+      error.hidden = false;
     }
   });
 }
@@ -433,11 +568,21 @@ function onSubmit(id, handler) {
 
 const values = (form) => Object.fromEntries(new FormData(form));
 
+function checkEmail(message, email) {
+  $("#check-email-text").textContent = message;
+  const to = $("#check-email-to");
+  to.textContent = email ? `Sent to: ${email}` : "";
+  to.hidden = !email;
+  go("check-email");
+}
+
 // Opening the link only shows a button; confirming takes a deliberate click. So link
 // scanners that run scripts, or a link someone else sends you, can't act for you.
 function showVerify() {
   const hasToken = Boolean(pendingToken);
-  $("#verify-text").textContent = hasToken
+  const text = $("#verify-text");
+  text.className = "notice";
+  text.textContent = hasToken
     ? "Confirm this is your email address to finish creating your account."
     : "This page needs the link from your email.";
   $("#verify-confirm").hidden = !hasToken;
@@ -448,10 +593,13 @@ async function confirmEmail(event) {
   await busy(event.currentTarget, async () => {
     const token = pendingToken;
     pendingToken = null;
+    const text = $("#verify-text");
     try {
-      $("#verify-text").textContent = (await api("POST", "/auth/verify", { token })).message;
+      text.textContent = (await api("POST", "/auth/verify", { token })).message;
+      text.className = "notice is-ok";
     } catch (err) {
-      $("#verify-text").textContent = err.message;
+      text.textContent = err.message;
+      text.className = "notice is-error";
     }
     $("#verify-confirm").hidden = true;
     $("#verify-next").hidden = false;
@@ -460,11 +608,11 @@ async function confirmEmail(event) {
 
 function wireForms() {
   onSubmit("#signin-form", async (form) => {
-    $("#resend").hidden = true;
+    $("#resend-box").hidden = true;
     try {
       setMe(await api("POST", "/auth/login", values(form)));
     } catch (err) {
-      if (err.code === "EMAIL_NOT_VERIFIED") $("#resend").hidden = false;
+      if (err.code === "EMAIL_NOT_VERIFIED") { $("#resend-box").hidden = false; return; }
       throw err;
     }
     form.reset();
@@ -474,41 +622,57 @@ function wireForms() {
     go(target);
   });
   $("#resend").addEventListener("click", async (event) => {
+    const email = $("#signin-email").value;
     await busy(event.currentTarget, async () => {
-      await api("POST", "/auth/resend-verification", { email: $("#signin-email").value }).catch(() => {});
-      go("check-email");
+      const r = await api("POST", "/auth/resend-verification", { email }).catch(() => null);
+      checkEmail(r?.message ?? $("#check-email-text").textContent, email);
     });
   });
   // The server's wording says whether the emailed link is needed before signing in.
   onSubmit("#signup-form", async (form) => {
-    $("#check-email-text").textContent = (await api("POST", "/auth/register", values(form))).message;
+    const { email } = values(form);
+    const r = await api("POST", "/auth/register", values(form));
     form.reset();
-    go("check-email");
+    checkEmail(r.message, email);
   });
   onSubmit("#forgot-form", async (form) => {
-    $("#check-email-text").textContent = (await api("POST", "/auth/forgot-password", values(form))).message;
+    const { email } = values(form);
+    const r = await api("POST", "/auth/forgot-password", values(form));
     form.reset();
-    go("check-email");
+    checkEmail(r.message, email);
   });
   onSubmit("#reset-form", async (form) => {
     if (!pendingToken) throw new ApiError(0, "NO_TOKEN", "Open the reset link from your email again; it can only be used once.", {});
     const r = await api("POST", "/auth/reset-password", { token: pendingToken, password: form.elements.password.value });
     pendingToken = null;
     form.reset();
-    flash(r.message);
+    flash(r.message, "ok", "Password saved");
     go("signin");
   });
   $("#signout").addEventListener("click", async () => {
     await api("POST", "/auth/logout").catch(() => {});
     setMe(null);
     state.reschedule = null;
-    flash("You're signed out.");
+    flash("You're signed out.", "info");
     go("signin");
   });
+  $$(".reveal").forEach((button) => button.addEventListener("click", () => {
+    const input = $("input", button.parentElement);
+    const show = input.type === "password";
+    input.type = show ? "text" : "password";
+    button.setAttribute("aria-pressed", String(show));
+    button.setAttribute("aria-label", show ? "Hide password" : "Show password");
+  }));
+  $("#flash-close").addEventListener("click", () => flash(""));
+  $("#keep-time").addEventListener("click", () => { state.reschedule = null; go("appointments"); });
   $("#schedule-form").addEventListener("submit", loadSchedule);
   $("#verify-confirm").addEventListener("click", confirmEmail);
   $("#confirm-yes").addEventListener("click", confirmPick);
-  $("#confirm-no").addEventListener("click", () => { $("#confirm").hidden = true; state.pick = null; });
+  $("#confirm-no").addEventListener("click", () => {
+    $("#confirm").hidden = true;
+    state.pick = null;
+    $$(".slot-btn[aria-pressed='true']").forEach((b) => { b.setAttribute("aria-pressed", "false"); $(".tag", b).textContent = "Free"; });
+  });
   $("#day").addEventListener("change", (e) => { if (e.target.value) { setDay(e.target.value); loadStrip(); } });
   $("#prev-day").addEventListener("click", () => { setDay(addDays(state.day, -1)); loadStrip(); });
   $("#next-day").addEventListener("click", () => { setDay(addDays(state.day, 1)); loadStrip(); });

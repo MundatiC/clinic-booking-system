@@ -105,3 +105,22 @@ Caleb gave Claude Code one long, detailed brief: the assessment's verbatim requi
 36. **Caleb spotted that required email confirmation would block every reviewer on the demo**: without a verified domain, Resend only delivers to its own account owner. He chose, from three options, to make confirmation a setting (off on Render) and to send through Gmail SMTP.
     - While implementing it, the AI found that switching confirmation off would let anyone sign up with a walk-in patient's email and see their appointments. Accounts claiming an earlier walk-in record therefore still need the emailed link (tested).
     - Also found while preparing for reviewers: Swagger had no Authorize button (the OpenAPI spec declared no security scheme), and there was no ready-made patient login. Fixed with an `HTTPBearer` scheme and an optional seeded demo login.
+37. **UI redesign from Google Stitch (2026-10-23).** Caleb generated the design in Stitch from an AI-written prompt and exported 7 screens (code, screenshot, DESIGN.md).
+    - The first export had only 2 of the 11 screens asked for; the AI listed the missing ones and wrote a follow-up prompt, and Caleb exported the rest.
+    - Stitch invented details the API doesn't have (fees, insurers, rooms, phone lines, credentials, a data-protection claim) and used AI photos of the doctors. Caleb chose, from options, to drop the invented details and use initials.
+    - Caleb decided the Stitch exports and prompts stay out of the repo (excluded locally through `.git/info/exclude`, not `.gitignore`, so the repo doesn't even name them).
+    - The export couldn't be shipped as is: it loads Tailwind from a CDN and fonts and images from Google, all blocked by the CSP. The AI rebuilt it in plain CSS with self-hosted fonts and an inline SVG icon sprite, keeping every security rule (no inline script/style, `textContent` only; the existing tests enforce both).
+    - Stitch put rescheduling in a same-day panel on *My appointments*; the AI kept the existing flow (the full booking page in "move" mode, any day), styled as Stitch's rescheduling banner.
+    - Added the patient's phone to the staff schedule response, which Stitch's schedule showed and the front desk needs.
+    - The Figma MCP Caleb connected never showed up as tools in this session, so the work used the exported files only.
+    - **Browser walkthrough (desktop and 498 px phone width) found nine issues, all fixed:**
+      - The worst was the AI's own: it set `data-view` on `<body>` to colour the logo per page, and the router hides every `[data-view]` that isn't the current view, so it hid the whole page (white screen). Renamed to `data-page`.
+      - Earlier times today showed "Taken" (now "Too late to book · Past").
+      - The time list was taller than the screen, so the booking summary was off screen (the list now scrolls in its card).
+      - The nav's "Create account" button went blank on its own page (current-link colour = button colour).
+      - Success banners scrolled under the sticky header.
+      - A stray dark border on staff rows, and a centred list under a left-aligned heading.
+      - A new view opened at the previous view's scroll position.
+      - Small change made at the same time: the staff schedule now loads today on open.
+    - The exported `logo.svg` was a 64 px PNG inside an SVG wrapper (not recolourable); the AI redrew it as a vector without the stray orange dot, coloured per page (green for patients, terracotta for staff, deepest green on account pages), and used it as the favicon.
+    - The container's read-only filesystem (a hardening setting) meant every fix needed a rebuild, which Caleb ran; the AI started no other server.

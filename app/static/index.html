@@ -6,57 +6,127 @@
   <meta name="color-scheme" content="light">
   <meta name="referrer" content="no-referrer">
   <title>Book an appointment</title>
-  <link rel="preload" href="/assets/atkinson-next-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/assets/jakarta-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/assets/newsreader-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="icon" href="/assets/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/assets/app.css">
   <script src="/assets/app.js" defer></script>
 </head>
 <body>
+  <!-- Icons, used as <svg><use href="#i-name"/></svg>. -->
+  <svg class="sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+    <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-arrow-r" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></symbol>
+    <symbol id="i-cup" viewBox="0 0 24 24"><path d="M4 8h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM17 10h1.5a2.5 2.5 0 0 1 0 5H17M8 2v3M12 2v3"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  </svg>
+
   <a class="skip" href="#main">Skip to content</a>
 
   <header class="site">
-    <a class="brand" href="#/book">The Clinic</a>
-    <nav aria-label="Main">
-      <a href="#/book" data-nav="book">Book</a>
-      <a href="#/appointments" data-nav="appointments" data-when="patient" hidden>My appointments</a>
-      <a href="#/schedule" data-nav="schedule" data-when="staff" hidden>Day schedule</a>
-      <a href="#/signin" data-nav="signin" data-when="anon">Sign in</a>
-      <button type="button" class="link" id="signout" data-when="user" hidden>Sign out</button>
-    </nav>
+    <div class="bar">
+      <a class="brand" href="#/book">
+        <svg class="logo" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><rect width="32" height="32" rx="5.5"/><path d="M16 6.8v18.4M6.8 16h18.4"/></svg>
+        <span class="brand-name">The Clinic</span>
+        <span class="brand-tag">Outpatient · Nairobi</span>
+      </a>
+      <nav aria-label="Main">
+        <a href="#/schedule" data-nav="schedule" data-when="staff" hidden>Day schedule</a>
+        <a href="#/book" data-nav="book">Book</a>
+        <a href="#/appointments" data-nav="appointments" data-when="patient" hidden>My appointments</a>
+        <a href="#/signin" data-nav="signin" data-when="anon">Sign in</a>
+        <a href="#/signup" data-nav="signup" data-when="anon" class="nav-cta">Create account</a>
+        <button type="button" class="nav-out" id="signout" data-when="user" hidden>Sign out</button>
+        <span class="me" data-when="user" hidden><span class="avatar sm" id="me-initials" aria-hidden="true"></span><span id="me-name"></span></span>
+      </nav>
+    </div>
   </header>
 
   <main id="main" tabindex="-1">
-    <p class="flash" id="flash" role="status" aria-live="polite" hidden></p>
+    <div class="wrap">
+      <div class="banner" id="flash" role="status" aria-live="polite" hidden>
+        <svg class="icon"><use href="#i-check"/></svg>
+        <div><p class="banner-title" id="flash-title"></p><p id="flash-text"></p></div>
+        <button type="button" class="icon-btn" id="flash-close" aria-label="Dismiss message"><svg class="icon"><use href="#i-x"/></svg></button>
+      </div>
+    </div>
 
     <!-- Book: choose a doctor and a day, then a time on the day strip. -->
     <section data-view="book" hidden>
-      <h1>Book a 30-minute appointment</h1>
-      <p class="lede">Pick a doctor and a day, then choose a free time. All times are Nairobi time.</p>
-      <div class="book">
-        <div class="choose">
-          <fieldset>
-            <legend>Doctor</legend>
-            <div id="doctors" class="doctors"><p class="muted">Loading doctors…</p></div>
-          </fieldset>
-          <div class="field">
-            <label for="day">Day</label>
-            <div class="day-picker">
-              <button type="button" class="ghost" id="prev-day" aria-label="Previous day">Previous</button>
-              <input type="date" id="day" required>
-              <button type="button" class="ghost" id="next-day" aria-label="Next day">Next</button>
-            </div>
-            <p class="hint" id="day-label"></p>
-          </div>
+      <div class="page-head">
+        <div class="wrap">
+          <p class="eyebrow">Nairobi time (UTC+3)</p>
+          <h1>Book a 30-minute appointment</h1>
+          <p class="lede">Pick a doctor and a day, then choose a free time.</p>
         </div>
-        <div class="strip-wrap">
-          <h2 id="strip-title" class="strip-title">Times</h2>
-          <p class="muted" id="reschedule-note" hidden></p>
-          <div id="strip" class="strip" aria-describedby="strip-title"></div>
-          <div id="confirm" class="confirm" hidden>
-            <p id="confirm-text"></p>
-            <div class="actions">
-              <button type="button" id="confirm-yes">Book appointment</button>
-              <button type="button" class="ghost" id="confirm-no">Choose another time</button>
-            </div>
+      </div>
+      <div class="wrap">
+        <div class="banner is-move" id="reschedule-note" hidden>
+          <svg class="icon"><use href="#i-calendar"/></svg>
+          <div><p class="eyebrow">Rescheduling</p><p id="reschedule-text"></p></div>
+          <button type="button" class="text-btn" id="keep-time">Keep the current time</button>
+        </div>
+        <div class="book">
+          <div class="choose">
+            <section class="step" aria-labelledby="step-doctor">
+              <div class="step-head">
+                <h2 id="step-doctor"><span class="num" aria-hidden="true">1</span>Select doctor</h2>
+                <span class="aside" id="doctor-count"></span>
+              </div>
+              <div id="doctors" class="doctors" role="radiogroup" aria-labelledby="step-doctor"><p class="muted">Loading doctors…</p></div>
+            </section>
+
+            <section class="step" aria-labelledby="step-day">
+              <div class="step-head">
+                <h2 id="step-day"><span class="num" aria-hidden="true">2</span>Select date</h2>
+              </div>
+              <div class="card day-card">
+                <div class="day-nav">
+                  <button type="button" class="ghost" id="prev-day"><svg class="icon"><use href="#i-chev-l"/></svg><span>Previous day</span></button>
+                  <p class="day-title"><span id="day-label"></span><span class="day-sub" id="day-sub"></span></p>
+                  <button type="button" class="ghost" id="next-day"><span>Next day</span><svg class="icon"><use href="#i-chev-r"/></svg></button>
+                </div>
+                <div class="week" id="week" role="group" aria-label="Days this week"></div>
+                <div class="field jump">
+                  <label for="day">Or pick a date</label>
+                  <input type="date" id="day" required>
+                </div>
+                <p class="hours" id="day-hours" hidden><svg class="icon"><use href="#i-clock"/></svg><span></span></p>
+              </div>
+            </section>
+          </div>
+
+          <div class="side">
+            <section class="card slots" aria-labelledby="strip-title">
+              <div class="step-head">
+                <h2 id="strip-title"><span class="num" aria-hidden="true">3</span>Select time</h2>
+                <span class="pill" id="free-count" hidden></span>
+              </div>
+              <p class="aside" id="strip-sub"></p>
+              <ul id="strip" class="strip"></ul>
+            </section>
+
+            <section class="card confirm" id="confirm" aria-labelledby="confirm-when" hidden>
+              <p class="eyebrow accent">Selected appointment</p>
+              <h3 id="confirm-when"></h3>
+              <p class="confirm-who" id="confirm-who"></p>
+              <p class="meta"><svg class="icon"><use href="#i-clock"/></svg>30-minute consultation · Nairobi time</p>
+              <p class="note" id="confirm-text" hidden></p>
+              <div class="stack">
+                <button type="button" id="confirm-yes"><svg class="icon"><use href="#i-calendar"/></svg><span>Book appointment</span></button>
+                <button type="button" class="soft" id="confirm-no">Choose another time</button>
+              </div>
+              <p class="confirm-foot" data-when="anon">New here? <a href="#/signup">Create an account</a></p>
+            </section>
           </div>
         </div>
       </div>
@@ -64,140 +134,250 @@
 
     <!-- My appointments -->
     <section data-view="appointments" hidden>
-      <h1>My appointments</h1>
-      <p class="lede">Upcoming visits, soonest first. You can change or cancel up to an hour before.</p>
-      <ol id="my-list" class="visits"></ol>
-      <p class="muted" id="my-empty" hidden>No upcoming appointments. <a href="#/book">Book one</a>.</p>
+      <div class="page-head">
+        <div class="wrap head-row">
+          <div>
+            <p class="eyebrow">Your visits</p>
+            <h1>My appointments</h1>
+            <p class="lede">Upcoming visits, soonest first. You can change or cancel up to an hour before.</p>
+          </div>
+          <a class="button" href="#/book"><svg class="icon"><use href="#i-plus"/></svg>Book a visit</a>
+        </div>
+      </div>
+      <div class="wrap narrow-list">
+        <div class="list-head"><h2>Upcoming</h2><span class="pill" id="my-count" hidden></span></div>
+        <ol id="my-list" class="visits"></ol>
+        <div class="card empty" id="my-empty" hidden>
+          <span class="empty-icon"><svg class="icon"><use href="#i-calendar"/></svg></span>
+          <h3>No upcoming appointments</h3>
+          <p>When you book a visit it shows up here, and you can change or cancel it.</p>
+          <a class="button" href="#/book"><svg class="icon"><use href="#i-calendar"/></svg>Book a visit</a>
+        </div>
+      </div>
     </section>
 
     <!-- Staff day schedule -->
     <section data-view="schedule" hidden>
-      <h1>Day schedule</h1>
-      <form id="schedule-form" class="inline" method="post">
-        <div class="field">
-          <label for="schedule-doctor">Doctor</label>
-          <select id="schedule-doctor" required></select>
+      <div class="page-head">
+        <div class="wrap head-row">
+          <div>
+            <p class="eyebrow accent">Staff · Nairobi time (UTC+3)</p>
+            <h1>Day schedule</h1>
+            <p class="lede">Booked appointments for one doctor on one day.</p>
+          </div>
+          <p class="stat" id="schedule-stats" hidden><span>Booked</span><strong id="schedule-count"></strong></p>
         </div>
-        <div class="field">
-          <label for="schedule-day">Day</label>
-          <input type="date" id="schedule-day" required>
+      </div>
+      <div class="wrap">
+        <form id="schedule-form" class="card filter" method="post">
+          <div class="field">
+            <label for="schedule-doctor">Doctor</label>
+            <select id="schedule-doctor" required></select>
+          </div>
+          <div class="field">
+            <label for="schedule-day">Date</label>
+            <input type="date" id="schedule-day" required>
+          </div>
+          <button type="submit"><svg class="icon"><use href="#i-calendar"/></svg>Show schedule</button>
+        </form>
+        <p class="error" id="schedule-error" role="alert" hidden></p>
+        <div class="cols" aria-hidden="true" id="schedule-cols" hidden><span>Time (30 min)</span><span>Patient</span><span>Status</span><span>Action</span></div>
+        <ol id="schedule-list" class="visits rows"></ol>
+        <div class="card empty" id="schedule-empty" hidden>
+          <span class="empty-icon"><svg class="icon"><use href="#i-calendar"/></svg></span>
+          <h3>Nothing booked</h3>
+          <p>No appointments for this doctor on this day. Pick another day or doctor.</p>
         </div>
-        <button type="submit">Show schedule</button>
-      </form>
-      <ol id="schedule-list" class="visits"></ol>
-      <p class="muted" id="schedule-empty" hidden>Nothing booked for this doctor on this day.</p>
+      </div>
     </section>
 
     <!-- Sign in -->
-    <section data-view="signin" class="narrow" hidden>
-      <h1>Sign in</h1>
-      <form id="signin-form" method="post" novalidate>
-        <div class="field">
-          <label for="signin-email">Email</label>
-          <input id="signin-email" name="email" type="email" autocomplete="username" required maxlength="254">
-        </div>
-        <div class="field">
-          <label for="signin-password">Password</label>
-          <input id="signin-password" name="password" type="password" autocomplete="current-password" required maxlength="128">
-        </div>
-        <p class="error" role="alert" hidden></p>
-        <button type="submit">Sign in</button>
-        <button type="button" class="ghost" id="resend" hidden>Send the confirmation email again</button>
-      </form>
-      <p><a href="#/forgot">Forgot your password?</a></p>
-      <p>New here? <a href="#/signup">Create an account</a></p>
+    <section data-view="signin" class="auth" hidden>
+      <div class="card auth-card">
+        <p class="eyebrow">Patients and staff</p>
+        <h1>Sign in</h1>
+        <p class="lede">Book, move or cancel your appointments.</p>
+        <form id="signin-form" method="post" novalidate>
+          <div class="notice" id="resend-box" hidden>
+            <svg class="icon"><use href="#i-mail"/></svg>
+            <div>
+              <p class="notice-title">Confirm your email first</p>
+              <p>Open the link we emailed you, then sign in.</p>
+              <button type="button" class="soft sm" id="resend">Send the confirmation email again</button>
+            </div>
+          </div>
+          <p class="error" role="alert" hidden></p>
+          <div class="field">
+            <label for="signin-email">Email address</label>
+            <input id="signin-email" name="email" type="email" autocomplete="username" required maxlength="254">
+          </div>
+          <div class="field">
+            <div class="label-row"><label for="signin-password">Password</label><a href="#/forgot">Forgot your password?</a></div>
+            <div class="reveal-wrap">
+              <input id="signin-password" name="password" type="password" autocomplete="current-password" required maxlength="128">
+              <button type="button" class="icon-btn reveal" aria-label="Show password" aria-pressed="false"><svg class="icon"><use href="#i-eye"/></svg></button>
+            </div>
+          </div>
+          <button type="submit" class="wide"><span>Sign in</span><svg class="icon"><use href="#i-arrow-r"/></svg></button>
+        </form>
+        <p class="auth-foot">New here? <a href="#/signup">Create an account</a></p>
+      </div>
     </section>
 
     <!-- Sign up -->
-    <section data-view="signup" class="narrow" hidden>
-      <h1>Create an account</h1>
-      <form id="signup-form" method="post" novalidate>
-        <div class="field">
-          <label for="signup-name">Full name</label>
-          <input id="signup-name" name="full_name" autocomplete="name" required minlength="2" maxlength="120">
-        </div>
-        <div class="field">
-          <label for="signup-phone">Phone</label>
-          <input id="signup-phone" name="phone" type="tel" autocomplete="tel" required maxlength="32" aria-describedby="signup-phone-hint">
-          <p class="hint" id="signup-phone-hint">For example 0712 345 678 or +254 712 345 678.</p>
-        </div>
-        <div class="field">
-          <label for="signup-email">Email</label>
-          <input id="signup-email" name="email" type="email" autocomplete="email" required maxlength="254">
-        </div>
-        <div class="field">
-          <label for="signup-password">Password</label>
-          <input id="signup-password" name="password" type="password" autocomplete="new-password" required minlength="10" maxlength="128" aria-describedby="signup-password-hint">
-          <p class="hint" id="signup-password-hint">At least 10 characters. A few unrelated words make a strong one.</p>
-        </div>
-        <p class="error" role="alert" hidden></p>
-        <button type="submit">Create account</button>
-      </form>
-      <p>Already have an account? <a href="#/signin">Sign in</a></p>
+    <section data-view="signup" class="auth" hidden>
+      <div class="card auth-card">
+        <p class="eyebrow">New patients</p>
+        <h1>Create an account</h1>
+        <p class="lede">So you can book and manage your visits.</p>
+        <form id="signup-form" method="post" novalidate>
+          <p class="error" role="alert" hidden></p>
+          <div class="field">
+            <label for="signup-name">Full name</label>
+            <input id="signup-name" name="full_name" autocomplete="name" required minlength="2" maxlength="120">
+          </div>
+          <div class="field">
+            <label for="signup-phone">Phone number</label>
+            <input id="signup-phone" name="phone" type="tel" autocomplete="tel" required maxlength="32" aria-describedby="signup-phone-hint">
+            <p class="hint" id="signup-phone-hint">For example 0712 345 678 or +254 712 345 678.</p>
+          </div>
+          <div class="field">
+            <label for="signup-email">Email address</label>
+            <input id="signup-email" name="email" type="email" autocomplete="email" required maxlength="254">
+          </div>
+          <div class="field">
+            <label for="signup-password">Create a password</label>
+            <div class="reveal-wrap">
+              <input id="signup-password" name="password" type="password" autocomplete="new-password" required minlength="10" maxlength="128" aria-describedby="signup-password-hint">
+              <button type="button" class="icon-btn reveal" aria-label="Show password" aria-pressed="false"><svg class="icon"><use href="#i-eye"/></svg></button>
+            </div>
+            <p class="hint" id="signup-password-hint">At least 10 characters. A few unrelated words make a strong one.</p>
+          </div>
+          <button type="submit" class="wide"><span>Create account</span><svg class="icon"><use href="#i-check"/></svg></button>
+        </form>
+        <p class="auth-foot">Already have an account? <a href="#/signin">Sign in</a></p>
+      </div>
     </section>
 
     <!-- After sign-up / forgot password -->
-    <section data-view="check-email" class="narrow" hidden>
-      <h1>Check your email</h1>
-      <p id="check-email-text">If that email can be used, we have sent a message to it. Open the link inside to continue.</p>
-      <p class="muted">Nothing after a few minutes? Check spam, or <a href="#/signin">sign in</a> to send it again.</p>
+    <section data-view="check-email" class="auth" hidden>
+      <div class="card auth-card">
+        <span class="empty-icon ok"><svg class="icon"><use href="#i-mail"/></svg></span>
+        <h1>Check your email</h1>
+        <p id="check-email-text">If that email can be used, we have sent a message to it. Open the link inside to continue.</p>
+        <p class="sent-to" id="check-email-to" hidden></p>
+        <a class="button soft wide" href="#/signin"><svg class="icon"><use href="#i-chev-l"/></svg>Back to sign in</a>
+        <p class="auth-foot">Nothing after a few minutes? Check spam, or sign in to send it again.</p>
+      </div>
     </section>
 
     <!-- Email link landing pages -->
-    <section data-view="verify" class="narrow" hidden>
-      <h1>Confirm your email</h1>
-      <p id="verify-text" role="status" aria-live="polite"></p>
-      <button type="button" id="verify-confirm" hidden>Confirm my email</button>
-      <p><a href="#/signin" id="verify-next" hidden>Sign in</a></p>
+    <section data-view="verify" class="auth" hidden>
+      <div class="card auth-card">
+        <p class="eyebrow">Email link</p>
+        <h1>Confirm your email</h1>
+        <p class="notice" id="verify-text" role="status" aria-live="polite"></p>
+        <button type="button" class="wide" id="verify-confirm" hidden>Confirm my email</button>
+        <a class="button wide" href="#/signin" id="verify-next" hidden><span>Sign in</span><svg class="icon"><use href="#i-arrow-r"/></svg></a>
+      </div>
     </section>
 
-    <section data-view="forgot" class="narrow" hidden>
-      <h1>Reset your password</h1>
-      <form id="forgot-form" method="post" novalidate>
-        <div class="field">
-          <label for="forgot-email">Email</label>
-          <input id="forgot-email" name="email" type="email" autocomplete="email" required maxlength="254">
-        </div>
-        <p class="error" role="alert" hidden></p>
-        <button type="submit">Email me a reset link</button>
-      </form>
+    <section data-view="forgot" class="auth" hidden>
+      <div class="card auth-card">
+        <p class="eyebrow">Account recovery</p>
+        <h1>Forgot your password?</h1>
+        <p class="lede">Enter your email and we'll send you a link to choose a new one.</p>
+        <form id="forgot-form" method="post" novalidate>
+          <p class="error" role="alert" hidden></p>
+          <div class="field">
+            <label for="forgot-email">Email address</label>
+            <input id="forgot-email" name="email" type="email" autocomplete="email" required maxlength="254">
+          </div>
+          <button type="submit" class="wide"><span>Send reset link</span><svg class="icon"><use href="#i-arrow-r"/></svg></button>
+        </form>
+        <p class="auth-foot"><a href="#/signin">Back to sign in</a></p>
+      </div>
     </section>
 
-    <section data-view="reset" class="narrow" hidden>
-      <h1>Choose a new password</h1>
-      <form id="reset-form" method="post" novalidate>
-        <div class="field">
-          <label for="reset-password">New password</label>
-          <input id="reset-password" name="password" type="password" autocomplete="new-password" required minlength="10" maxlength="128" aria-describedby="reset-hint">
-          <p class="hint" id="reset-hint">At least 10 characters. This signs you out on every device.</p>
-        </div>
-        <p class="error" role="alert" hidden></p>
-        <button type="submit">Save new password</button>
-      </form>
+    <section data-view="reset" class="auth" hidden>
+      <div class="card auth-card">
+        <p class="eyebrow">Account recovery</p>
+        <h1>Choose a new password</h1>
+        <p class="lede">Once saved, you're signed out everywhere else.</p>
+        <form id="reset-form" method="post" novalidate>
+          <p class="error" role="alert" hidden></p>
+          <div class="field">
+            <label for="reset-password">New password</label>
+            <div class="reveal-wrap">
+              <input id="reset-password" name="password" type="password" autocomplete="new-password" required minlength="10" maxlength="128" aria-describedby="reset-hint">
+              <button type="button" class="icon-btn reveal" aria-label="Show password" aria-pressed="false"><svg class="icon"><use href="#i-eye"/></svg></button>
+            </div>
+            <p class="hint" id="reset-hint">At least 10 characters. This signs you out on every device.</p>
+          </div>
+          <button type="submit" class="wide">Save password</button>
+        </form>
+        <p class="auth-foot"><a href="#/signin">Back to sign in</a></p>
+      </div>
     </section>
   </main>
 
   <footer class="site">
-    <p>Appointments are 30 minutes. Book up to 90 days ahead, and at least one hour before.</p>
+    <div class="wrap foot">
+      <p class="rules"><svg class="icon"><use href="#i-clock"/></svg><span>Appointments are 30 minutes. Book up to 90 days ahead, and at least one hour before. All times are Nairobi time (EAT, UTC+3).</span></p>
+      <p class="emergency"><span class="eyebrow accent">Emergency</span><span>For an emergency, call <a href="tel:999">999</a> or <a href="tel:112">112</a> now. Don't book.</span></p>
+    </div>
   </footer>
 
-  <!-- One visit in a list; filled in with textContent only. -->
+  <!-- A patient's visit; filled in with textContent only. -->
   <template id="visit-template">
-    <li class="visit">
-      <div class="when"><span class="date"></span> <span class="time"></span></div>
-      <div class="who"></div>
-      <div class="actions">
-        <button type="button" class="ghost" data-act="reschedule">Change time</button>
-        <button type="button" class="ghost danger" data-act="cancel">Cancel</button>
+    <li class="card visit">
+      <div class="visit-main">
+        <span class="avatar" aria-hidden="true"></span>
+        <div class="visit-who">
+          <p class="visit-meta"><span class="rel"></span><span class="spec"></span></p>
+          <h3 class="who"></h3>
+        </div>
+        <div class="visit-when">
+          <p class="date"></p>
+          <p class="time"></p>
+        </div>
+      </div>
+      <div class="visit-foot">
+        <button type="button" class="soft sm" data-act="reschedule"><svg class="icon"><use href="#i-clock"/></svg>Change time</button>
+        <button type="button" class="text-btn danger sm" data-act="cancel"><svg class="icon"><use href="#i-x"/></svg>Cancel</button>
       </div>
       <form class="cancel-form" method="post" hidden>
+        <p class="cancel-title"><svg class="icon"><use href="#i-alert"/></svg><span></span></p>
         <label>Reason for cancelling
-          <textarea name="reason" required minlength="3" maxlength="500" rows="2"></textarea>
+          <textarea name="reason" required minlength="3" maxlength="500" rows="2" placeholder="For example: feeling better, or can't make it"></textarea>
         </label>
         <p class="error" role="alert" hidden></p>
         <div class="actions">
+          <button type="button" class="soft" data-act="keep">Keep it</button>
           <button type="submit" class="danger">Cancel appointment</button>
-          <button type="button" class="ghost" data-act="keep">Keep it</button>
+        </div>
+      </form>
+    </li>
+  </template>
+
+  <!-- One row of the staff day schedule; filled in with textContent only. -->
+  <template id="row-template">
+    <li class="card visit row">
+      <div class="row-main">
+        <p class="row-time"><svg class="icon"><use href="#i-clock"/></svg><span class="time"></span></p>
+        <div class="row-who"><p class="who"></p><a class="phone"><svg class="icon"><use href="#i-phone"/></svg><span></span></a></div>
+        <p><span class="badge">Booked</span></p>
+        <p class="row-act"><button type="button" class="soft sm danger-text" data-act="cancel"><svg class="icon"><use href="#i-x"/></svg>Cancel</button></p>
+      </div>
+      <form class="cancel-form" method="post" hidden>
+        <p class="cancel-title"><svg class="icon"><use href="#i-alert"/></svg><span></span></p>
+        <label>Reason for cancelling
+          <textarea name="reason" required minlength="3" maxlength="500" rows="2" placeholder="For example: doctor unavailable, patient asked by phone"></textarea>
+        </label>
+        <p class="error" role="alert" hidden></p>
+        <div class="actions">
+          <button type="button" class="soft" data-act="keep">Back</button>
+          <button type="submit" class="danger">Confirm cancellation</button>
         </div>
       </form>
     </li>

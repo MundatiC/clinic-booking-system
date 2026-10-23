@@ -82,6 +82,7 @@ def schedule(
         ScheduleItem(
             **AppointmentOut.build(a, settings.tz).model_dump(),
             patient_name=a.patient.full_name,
+            patient_phone=a.patient.phone,
         )
         for a in service.doctor_day(doctor_id, date)
     ]
