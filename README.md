@@ -1,6 +1,8 @@
 # Clinic Booking System
 
-A REST API for a small clinic (5 doctors, 30-minute slots) where patients can see free slots, book, cancel, and reschedule appointments. It was built for the Savannah Informatics Implementation Engineer take-home.
+A REST API and booking page for a small clinic (5 doctors, 30-minute slots) where patients can see free slots, book, cancel, and reschedule appointments. It was built for the Savannah Informatics Implementation Engineer take-home.
+
+It has patient accounts with email verification and password reset, staff accounts, a same-origin booking UI at `/`, and seven security testing tools in CI ([Security testing](#security-testing)).
 
 - **Live URL:** `TODO(Caleb): https://<service>.onrender.com`. Not deployed yet; filled in after the Render service is created (see [Manual steps](#manual-steps)). No URL is invented here.
 - **API docs:** `<live-url>/docs` (Swagger UI, with examples and documented error responses) and `<live-url>/redoc`. Locally: http://localhost:8000/docs
@@ -9,7 +11,7 @@ A REST API for a small clinic (5 doctors, 30-minute slots) where patients can se
 
 > Section 1 (system design) was written and committed **before any application code** (first commit, `docs: system design`). Each later piece landed through its own PR, so the history shows CI running on PRs and deploy-on-merge.
 
-**Contents:** [1. System design](#1-system-design) · [Assumptions & decisions](#assumptions--decisions) · [Running locally](#running-locally) · [2. API reference](#2-api-reference) · [3. Deployment and CI/CD](#3-deployment-and-cicd) · [Known limitations](#known-limitations) · [Manual steps](#manual-steps) · [4. AI reflection](#4-ai-reflection)
+**Contents:** [1. System design](#1-system-design) · [Assumptions & decisions](#assumptions--decisions) · [Running locally](#running-locally) · [2. API reference](#2-api-reference) · [Accounts and email](#accounts-and-email) · [Security testing](#security-testing) · [3. Deployment and CI/CD](#3-deployment-and-cicd) · [Known limitations](#known-limitations) · [Manual steps](#manual-steps) · [4. AI reflection](#4-ai-reflection)
 
 ---
 
@@ -187,6 +189,24 @@ Row locks plus DB uniqueness mean concurrent cancel/reschedule/book on the same 
 | `GET /health` | Liveness, no DB, not rate limited | 200 |
 | `GET /ready` | Readiness, checks DB with `SELECT 1` | 200 / 503 |
 
+*Added in phase 2* (see [Accounts and email](#accounts-and-email)):
+
+| Method & path | Purpose | Who | Success |
+|---|---|---|---|
+| `POST /auth/register` | Create a patient account (emails a verification link) | anyone | 202 |
+| `POST /auth/verify` | Confirm the email with the emailed token | anyone | 200 |
+| `POST /auth/resend-verification` | Send the link again | anyone | 202 |
+| `POST /auth/login` | Sign in from the browser: sets the session cookie | anyone | 200 |
+| `POST /auth/token` | Sign in from API clients: returns a bearer token | anyone | 200 |
+| `POST /auth/logout` | End this session (revoked server-side) | signed in | 204 |
+| `GET /auth/me` | The signed-in account | signed in | 200 |
+| `POST /auth/forgot-password` | Email a reset link | anyone | 202 |
+| `POST /auth/reset-password` | Set a new password with the token; signs out everywhere | anyone | 200 |
+| `GET /doctors/{id}/appointments?date=` | The doctor's booked appointments that day, with patient names | staff | 200 |
+| `GET /` and `/assets/*` | The booking UI | anyone | 200 |
+
+`POST /patients` became **staff-only** (it now records walk-in patients without accounts). The appointment and patient endpoints now require sign-in: patients act only on their own records and staff on anyone's.
+
 Error envelope (every error, including framework validation errors):
 
 ```json
@@ -199,6 +219,8 @@ Status codes: 201 created · 200 OK · 404 unknown resource · 409 state conflic
 
 ### 1.8 Security and auth trade-off
 
+> **Phase 2 update:** authentication is now implemented, but as email + password with server-side sessions, not the phone OTP + JWT planned below. Caleb chose this so the demo needs no SMS provider. See [Accounts and email](#accounts-and-email). The original pre-code text is kept below unchanged.
+
 The spec defines **no authentication**. The real consequence is that **anyone who has an appointment's ID can view, cancel or reschedule it**, and anyone can list a patient's appointments if they know the patient's ID. What I did instead of ignoring it:
 
 - **Non-enumerable UUIDv4** IDs for patients and appointments, so there's no ID guessing.
@@ -208,9 +230,9 @@ The spec defines **no authentication**. The real consequence is that **anyone wh
 
 ### 1.9 Growth path (prioritised)
 
-1. **Auth** (patient OTP + JWT, staff RBAC), as above. This is the biggest current risk.
+1. **Auth** (patient OTP + JWT, staff RBAC), as above. This is the biggest current risk. *(Done in phase 2 as password + sessions with patient/staff roles. Next steps: optional TOTP MFA for staff, and a breached-password check.)*
 2. **Doctor time off / clinic holidays** table, subtracted in the availability calculation (no schema change elsewhere).
-3. **Notifications** (confirmation, reminder 24h before) via an outbox table and a worker/queue. Use SMS and WhatsApp first for Kenya. M-Pesa deposit for no-show reduction is an adjacent flow.
+3. **Notifications** (confirmation, reminder 24h before) via an outbox table and a worker/queue. *(Phase 2: booked, rescheduled and cancelled emails are sent after the response. Not yet done: reminders, retries, and an outbox.)* Use SMS and WhatsApp first for Kenya. M-Pesa deposit for no-show reduction is an adjacent flow.
 4. **Multi-clinic / tenancy**: a `clinic_id` on doctors (each clinic with its own time zone, which the local-time-first design already supports), and scoping on every query.
 5. **Variable durations / appointment types**: move to the `tstzrange` exclusion constraint (1.4).
 6. **Scale**: pagination is already in place for patient lists. Next would be a short-TTL availability cache invalidated on writes, a read replica for availability, a shared Redis rate limiter, and edge rate limiting/WAF.
@@ -250,6 +272,22 @@ The spec defines **no authentication**. The real consequence is that **anyone wh
 | 26 | Times returned in clinic time (`+03:00`), including `created_at` on patients | Mixed UTC/local | One rule for clients. Found during manual testing, when `POST /patients` returned `…Z` |
 | 27 | Region Frankfurt | Oregon, Ohio, Singapore | Lowest latency to Nairobi among Render regions |
 | 28 | Local compose Postgres on host port **55432** | 5432/5433 | Avoids clashing with locally installed Postgres (this dev machine already had one on 5433) |
+| 29 | Email + password with **server-side sessions** (patient and staff roles). Option chosen by Caleb | Phone OTP + JWT (the original plan); JWT access + refresh | Needs no SMS provider. Revocation is real (logout, password reset). No JWT pitfalls |
+| 30 | argon2id password hashes; session and email tokens stored only as SHA-256 | bcrypt; storing tokens | A database leak yields no usable sessions or links |
+| 31 | Browser sign-in sets an `HttpOnly; Secure; SameSite=Strict` `__Host-` cookie and never returns the token. API clients use `/auth/token` | One endpoint returning the token to JS | Page scripts can never read the session token |
+| 32 | CSRF: a foreign `Origin` is refused on every write, and cookie-authenticated writes must show a trusted `Origin`/`Referer` | CSRF tokens | Same protection with no token plumbing. `SameSite=Strict` is a second layer |
+| 33 | Sign-up, resend and forgot-password always answer 202 with the same body. An existing email gets an "already registered" email | 409 on duplicates | No account enumeration. The cost: sign-up can't log you in straight away |
+| 34 | Sign-in requires a verified email | Allow unverified sign-in with limits | Every signed-in user owns their inbox, so a new account can safely be linked to a staff-created walk-in record with the same email |
+| 35 | Lockout keyed by **email** (5 failures, 15 min) on the existing limiter, plus a per-IP limit on `/auth/*` | DB columns on the user | Unknown emails lock identically, so lockout reveals nothing. Trade-off: in-memory, per instance |
+| 36 | Password reset marks the email verified and revokes every session | Reset only | Following the link proves control of the inbox, which defeats "squatting" someone's email with an unverified account (tested) |
+| 37 | Other people's appointments, and staff-only routes, answer **404** to patients | 403 | No oracle for which IDs exist |
+| 38 | Email over stdlib SMTP: Mailpit locally, **Resend's SMTP relay** in production (Resend chosen by Caleb) | Resend SDK/HTTP API | One transport everywhere, no new dependency |
+| 39 | Emails sent after the response (`BackgroundTasks`) | Synchronous; outbox + worker | A slow mail server never slows a request. Shortcut: no retries (outbox is the upgrade path) |
+| 40 | NIST-style password policy: 10–128 characters, a common-password list, must not contain the email | Composition rules | Length beats complexity rules. Next step: a breached-password check |
+| 41 | UI is one static page served by the API: vanilla JS, no build, no CDN, self-hosted font, strict CSP | React/Vite SPA | Smallest thing that does the job (ponytail skill). Same origin means no CORS and cookie-only auth |
+| 42 | Availability response gained `working_hours` | UI infers windows from free slots | The day strip must show lunch and closed periods, which free slots alone can't express |
+| 43 | Dependency cooldown enforced in Dependabot (7 days), not in uv | `exclude-newer = "7 days"` in uv | Forcing it in uv today would roll FastAPI back 18 releases. See [Security testing](#security-testing) |
+| 44 | Keep-alive also triggerable externally (`workflow_dispatch` / `repository_dispatch`). Caleb's choice, alongside the cron | Cron only | GitHub's scheduler is best-effort; an outside scheduler is steadier |
 
 ---
 
@@ -259,10 +297,16 @@ The spec defines **no authentication**. The real consequence is that **anyone wh
 
 ```bash
 docker compose up --build
-# API on http://localhost:8000 (docs at /docs). Migrations and seed run on boot.
+# Booking UI: http://localhost:8000      API docs: http://localhost:8000/docs
+# Caught emails (Mailpit): http://localhost:8025
+# Migrations and seed run on boot.
 ```
 
-This was verified from a fresh `git clone`. The API container runs as `uid=999(app)` with a read-only root filesystem.
+To try it: sign up in the UI, open the verification email in Mailpit (http://localhost:8025), click the link, then sign in and book. There's a local-only staff login, `staff@example.com` / `reception desk for local testing`, set in `docker-compose.yml`. Override it with `STAFF_EMAIL`/`STAFF_PASSWORD`, and never use it in production.
+
+The phase 1 stack was verified from a fresh `git clone`. The API container now runs as `uid=10001` with a read-only root filesystem.
+
+> **Low-memory laptops:** the full stack is light (Postgres + API + Mailpit). The *security scanners* (ZAP, Semgrep, Trivy images ≈ 3 GB) are not, so run them one at a time ([commands](#running-the-security-tools-locally)) or leave them to CI.
 
 ### Without Docker (uv)
 
@@ -279,19 +323,40 @@ make migrate seed run     # alembic upgrade head · seed · uvicorn --reload
 ```bash
 make test     # pytest against real Postgres (creates/drops the clinic_test DB)
 make cov      # with coverage
+make fuzz     # Schemathesis: fuzz every API operation from the OpenAPI schema
 make lint     # ruff check + ruff format --check + mypy --strict + bandit
 make audit    # pip-audit on the locked runtime dependencies
 ```
 
 Tests use `TEST_DATABASE_URL` (default `…localhost:55432/clinic_test`). The suite drops and recreates that database, runs the Alembic migrations, and truncates and re-seeds before each test. It truncates rather than rolling back because the concurrency tests need committed data visible across threads.
 
-Latest local run: **121 passed**, 98% line+branch coverage. `app/services` and `app/repositories` are at 100%, except one defensive re-raise in `repositories/integrity.py`.
+Phase 1 local run: **121 passed**, 98% line+branch coverage. Phase 2 local run before the UI: **190 passed** (63 of them security tests), 97% coverage. `app/services` and `app/repositories` are at 100%, except `services/auth.py` (one branch) and one defensive re-raise in `repositories/integrity.py`. The UI PR's database-backed tests ran in CI only (see [Manual steps](#manual-steps)).
 
 ---
 
 ## 2. API reference
 
-Full interactive docs live at `/docs`. The flow below is **real output** from the Docker stack (next Monday was 2026-10-26; IDs shortened).
+Full interactive docs live at `/docs`.
+
+**Since phase 2, bookings need a signed-in account.** From curl, get a bearer token and send it with every request:
+
+```bash
+B=http://localhost:8000
+# Sign up, then open the verification email in Mailpit (http://localhost:8025) and use its token:
+curl -s -X POST $B/auth/register -H 'Content-Type: application/json' \
+  -d '{"full_name":"Wanjiku Njoroge","phone":"0712 345 678","email":"wanjiku@example.com","password":"plum jacaranda morning walk"}'
+# 202 {"message":"If that email can be used, we have sent a message to it. Check your inbox."}
+curl -s -X POST $B/auth/verify -H 'Content-Type: application/json' -d '{"token":"<token from the email link>"}'
+# 200 {"message":"Email confirmed. You can sign in now."}
+TOKEN=$(curl -s -X POST $B/auth/token -H 'Content-Type: application/json' \
+  -d '{"email":"wanjiku@example.com","password":"plum jacaranda morning walk"}' | python -c 'import json,sys;print(json.load(sys.stdin)["access_token"])')
+AUTH="Authorization: Bearer $TOKEN"
+# A patient books for themselves; patient_id may be omitted:
+curl -s -X POST $B/appointments -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"doctor_id":1,"start_at":"2026-10-26T09:00:00+03:00"}'
+```
+
+These auth calls were run against the Docker stack with Mailpit (sign-up, the verification email, verify, sign-in and a staff token all worked). The walkthrough below is **real output from phase 1**, before auth: next Monday was 2026-10-26 and IDs are shortened. Request and response bodies are unchanged except that every appointment call now needs `-H "$AUTH"`, and `POST /patients` is staff-only.
 
 ```bash
 B=http://localhost:8000
@@ -364,6 +429,15 @@ Every response carries `X-Request-ID` (an incoming one is echoed if it is safe),
 | 429 | `RATE_LIMITED` | Write endpoints over `RATE_LIMIT_WRITES` (30/min per IP); `Retry-After` header |
 | 500 | `INTERNAL_ERROR` | Generic message only; the traceback goes to logs with the same `request_id` |
 | 503 | `NOT_READY` | `/ready` cannot reach the database |
+| 401 | `NOT_AUTHENTICATED` | No session or token, or it has expired or been revoked *(phase 2)* |
+| 401 | `INVALID_CREDENTIALS` | Wrong email or password, identical for unknown emails *(phase 2)* |
+| 403 | `EMAIL_NOT_VERIFIED` | Correct password, but the email isn't confirmed yet *(phase 2)* |
+| 403 | `CSRF_FAILED` | Write from a foreign origin, or a cookie-authenticated write without a trusted `Origin`/`Referer` *(phase 2)* |
+| 404 | `PATIENT_NOT_FOUND` / `APPOINTMENT_NOT_FOUND` | Also returned for **someone else's** records, so they look the same as non-existent ones *(phase 2)* |
+| 422 | `WEAK_PASSWORD` | Fails the password policy *(phase 2)* |
+| 422 | `INVALID_TOKEN` | Verification/reset link invalid, already used, superseded or expired *(phase 2)* |
+| 422 | `PATIENT_REQUIRED` | Staff booking without `patient_id` *(phase 2)* |
+| 429 | `ACCOUNT_LOCKED` | 5 failed sign-ins for that email in 15 min; `Retry-After` header *(phase 2)* |
 
 ### What the tests cover
 
@@ -395,13 +469,127 @@ The first patient-page plan showed an `Incremental Sort` caused by an `ORDER BY 
 
 ---
 
+## Accounts and email
+
+**Patients** sign themselves up, and **staff** accounts come from the seed (`STAFF_EMAIL` / `STAFF_PASSWORD` env vars, never in the repo). Staff can also record walk-in patients without accounts (`POST /patients`). When that person later signs up with the same email, their account is linked to the existing record. That's safe because sign-in requires a verified inbox.
+
+```
+sign up ──► "check your email" (202, same answer for every email)
+   │            └─ existing account?  → "you already have an account" email instead
+   ▼
+verify link (24 h, single use) ──► welcome email ──► sign in
+                                                       ├─ browser: POST /auth/login → __Host-session cookie
+                                                       └─ API:     POST /auth/token → bearer token
+forgot password ──► reset link (30 min, single use, newest only) ──► new password
+                                                       └─ signs out every session, "password changed" email
+```
+
+| Concern | How it's handled |
+|---|---|
+| Password storage | argon2id (rehashed automatically if parameters change) |
+| Password policy | 10–128 characters, not a common password, must not contain the email (NIST 800-63B style) |
+| Session token | 256-bit random. Only its SHA-256 is stored, so a DB leak yields no live sessions |
+| Browser cookie | `__Host-session`: `HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/`, no `Domain`. The token is never in a response body |
+| Session lifetime | 30 min idle (sliding), 12 h absolute. Logout and password reset revoke server-side |
+| CSRF | A foreign `Origin` is refused on every write. Cookie-authenticated writes must show a trusted `Origin`/`Referer`. JSON-only bodies, `SameSite=Strict` |
+| Brute force | Per-email lockout (5 failures, 15 min), per-IP limit on `/auth/*` (10/min), per-IP limit on writes (30/min) |
+| Enumeration | Sign-up, resend and forgot-password give identical answers. Sign-in failures are identical, with equal cost via a dummy hash. Lockout is keyed by email, so it applies to unknown emails too |
+| Access control | Patients see and change only their own appointments. Others' answer **404** (no existence oracle). Staff-only routes also 404 for patients |
+| Email links | Tokens are single-use, short-lived and stored hashed. They travel in the **URL fragment** (`/#/verify?token=…`), which browsers never send to servers or in `Referer`. The UI wipes them from history after reading |
+| Email content | Every value is HTML-escaped. No remote images or tracking pixels. Names can't contain control characters |
+
+**Emails** (`app/emails/templates/`, plain text + HTML):
+1. *Confirm your email to finish signing up*
+2. *You already have an account*
+3. *Your account is ready*
+4. *New sign-in to your account* (time and a coarse "Chrome on Android"-style device, never the raw user agent)
+5. *Reset your password*
+6. *Your password was changed*
+7. *Appointment booked / moved / cancelled*
+
+All of them are sent over plain SMTP: **Mailpit** catches them locally (inbox at http://localhost:8025), and **Resend**'s SMTP relay sends them in production:
+
+```
+SMTP_HOST=smtp.resend.com  SMTP_PORT=465  SMTP_SECURITY=ssl  SMTP_USER=resend
+SMTP_PASSWORD=<RESEND_API_KEY>  MAIL_FROM="The Clinic <bookings@your-verified-domain>"
+PUBLIC_BASE_URL=https://<your public URL>     # used in email links and the CSRF origin check
+```
+
+Delivery happens after the response, and a failure is logged (template name only, never the address) without affecting the request. There are no retries yet; the upgrade is an outbox table plus a worker.
+
+### The booking UI
+
+A single static page at `/` (`app/static/`). It uses vanilla JS with no framework, no build step and no CDN. Its design follows the *frontend-design* skill, and the code follows the *ponytail* skill (smallest complete change).
+
+- **Flows:**
+  - sign up / sign in, verify, forgot / reset
+  - pick a doctor and day, then the **day strip**: the doctor's working windows on a time rail, lunch shown as a visible "Closed 12:00–13:00" gap, free times as large buttons
+  - confirm and book
+  - *My appointments*: change time on the same strip, or cancel with a reason
+  - staff *Day schedule* with patient names and cancel
+- **Look:**
+  - one family, Atkinson Hyperlegible Next, designed for low-vision legibility (OFL licence, self-hosted)
+  - jacaranda violet for actions (Nairobi's October–November bloom)
+  - quiet everywhere except the strip
+- **Safety:** all text goes in via `textContent`/`createElement` (tests forbid HTML-parsing sinks). The CSP allows only own-origin files, with no inline script, style or handlers.
+- **Accessibility:** labelled controls, visible focus, a skip link, `aria-live` status messages, `prefers-reduced-motion` respected, and large tap targets on mobile.
+
+---
+
+## Security testing
+
+Seven tools run on every PR (`.github/workflows/security.yml`, `codeql.yml`, plus the `ci.yml` jobs), on `main`, and weekly, because new CVEs and rules appear even when the code doesn't change. Most found something real. Every finding was fixed rather than silenced, apart from one suppression explained below.
+
+| Tool | What it does here | What it found, and the fix |
+|---|---|---|
+| **pytest security suite** (`tests/security/`, 63 tests) | Auth required on every non-public operation (generated from OpenAPI, so a new route can't silently skip it), IDOR, CSRF, CORS, enumeration, lockout, session expiry and revocation, token storage, email-squatting takeover, injection payloads, control characters, email escaping | Mutation-checked: removing the ownership check, the cookie CSRF check or the enumeration-safe sign-up each makes tests fail |
+| **Schemathesis** (`make fuzz`) | Property-based fuzzing of all 20 operations from the OpenAPI schema, authenticated. Checks no 5xx, documented status codes/content types/headers/schemas, and invalid input rejected | A **500** on huge `doctor_id` (Postgres integer overflow), now bounded to 2³¹−1 → 422. An **undocumented 400** on non-UTF-8 bodies, now the same 422 as malformed JSON. **`?date=0` accepted** (read as a Unix timestamp), now ISO dates only |
+| **OWASP ZAP** (`scripts/zap_scan.sh`) | Active API scan of the running stack from the OpenAPI spec, authenticated as staff, plus a passive baseline of the UI page. **All 120 rules set to FAIL** | Missing `Cross-Origin-Resource-Policy`, now `same-origin`. The scan's own logout revoked its token (1,333 of 3,188 requests became 401), so `/auth/logout` is excluded via a hook; logout is covered by pytest instead. The first full CI run passed 120/120 (its 401 share was not re-measured) |
+| **Trivy** | Image CVEs (fixable HIGH/CRITICAL fail) + Dockerfile/compose config | Clean |
+| **Semgrep** | `p/python`, `p/owasp-top-ten`, `p/secrets`, `p/dockerfile`, `p/github-actions`, `p/javascript` | No code findings. Supply chain: Dependabot had no update **cooldown**, now 7 days (see below) |
+| **CodeQL** | Semantic analysis of Python, JavaScript and Actions (`security-extended`) | Python and Actions passed on PR #7. JavaScript runs from the UI PR on |
+| **zizmor** | GitHub Actions security audit | 6× `artipacked` (checkout left the token in `.git/config`), now `persist-credentials: false` everywhere |
+| **hadolint** | Dockerfile lint | Non-numeric `USER` (now `10001:10001`) and shell-form `HEALTHCHECK` (now exec form). Base images also pinned by digest |
+| bandit · pip-audit · gitleaks | (`ci.yml`) SAST, known-vulnerable dependencies, secrets in git history | bandit flagged `assert` used for narrowing, replaced with explicit checks |
+
+**The one suppression:** Semgrep's `uv-missing-dependency-cooldown` asks for `exclude-newer = "7 days"` in `pyproject.toml`. Applied today, it makes uv roll FastAPI back from 0.161 to 0.143, because the newest FastAPI needs a Starlette released this week. The cooldown is enforced where updates actually enter instead: Dependabot waits 7 days, and every update PR runs pip-audit plus the full CI and security workflows.
+
+### Running the security tools locally
+
+They're memory-hungry, so run them **one at a time**. CI runs them all anyway. From the repo root in Git Bash:
+
+```bash
+make test                          # needs: docker compose up -d db
+make fuzz                          # Schemathesis (FUZZ_EXAMPLES=200 for a heavier pass)
+
+# OWASP ZAP (heaviest): stack without rate limiting, then the scan
+RATE_LIMIT_ENABLED=false docker compose up -d --build --wait
+PYTHON=python bash scripts/zap_scan.sh      # reports in zap/
+docker compose down
+
+docker build -t clinic-booking:scan .
+MSYS_NO_PATHCONV=1 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.1 \
+  image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 clinic-booking:scan
+docker run --rm -i hadolint/hadolint:v2.15.1 < Dockerfile
+uvx zizmor@1.31.1 --offline .github/workflows
+MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W):/src" -w /src semgrep/semgrep:1.182.0 semgrep scan --metrics=off --error \
+  --config p/python --config p/owasp-top-ten --config p/secrets --config p/dockerfile --config p/github-actions --config p/javascript \
+  --exclude-rule package_managers.uv.uv-missing-dependency-cooldown.uv-missing-dependency-cooldown
+```
+
+(`MSYS_NO_PATHCONV`, `pwd -W` and `PYTHON=python` are for Git Bash on Windows. On Linux or macOS, drop them.)
+
+---
+
 ## 3. Deployment and CI/CD
 
 | Workflow | Trigger | What it does |
 |---|---|---|
 | **CI** (`.github/workflows/ci.yml`) | every `pull_request` (and reused by Deploy) | **lint**: `ruff check`, `ruff format --check`, `mypy --strict`, `bandit`, `pip-audit --strict` on the locked runtime deps · **secrets**: gitleaks over full history · **tests**: Postgres 16 service, `alembic upgrade → downgrade base → upgrade`, `alembic check` (models ↔ migrations), `pytest --cov` (coverage XML uploaded) · **docker**: image builds. Any failure fails the PR. |
 | **Deploy** (`deploy.yml`) | `push` to **`main`**, i.e. when a PR is merged | Re-runs the whole CI on the merge result, then `POST`s the Render deploy hook, then `scripts/smoke.py` polls `<APP_URL>/health` until it reports **this commit** (Render's `RENDER_GIT_COMMIT`), then requires `/ready` 200 and a non-empty `/doctors`. A failed smoke test fails the workflow. `concurrency: deploy-production` (no overlapping deploys, never cancelled mid-way). It skips with a warning until the secret and variable exist (this is what the first run on `main` did). |
-| **Keep-alive** (`keepalive.yml`) | cron `*/10 * * * *` + manual | Pings `/health` from outside Render; see below. |
+| **Keep-alive** (`keepalive.yml`) | cron `*/10 * * * *` + manual + external trigger (`repository_dispatch`) | Pings `/health` from outside Render; see below. |
+| **Security** (`security.yml`) | every PR, `main`, weekly | Schemathesis fuzzing, OWASP ZAP (API + UI page), Trivy, Semgrep, zizmor, hadolint ([Security testing](#security-testing)). Any finding fails it. |
+| **CodeQL** (`codeql.yml`) | every PR, `main`, weekly | Python, JavaScript and Actions analysis; results under Security → Code scanning. |
 
 All workflows use `permissions: contents: read`. Actions are pinned to full commit SHAs, and secrets come only from GitHub secrets. Dependabot (`.github/dependabot.yml`) watches uv, Actions and Docker.
 
@@ -426,15 +614,31 @@ Trade-offs, stated honestly:
 - (e) This is a demo-grade workaround. The production answer is a paid always-on instance, or accepting cold starts behind a status page.
 - (f) Optional second layer (manual): an external uptime monitor (UptimeRobot or cron-job.org) on `<APP_URL>/health`.
 
+**External trigger (Caleb's choice: keep the cron *and* add an outside scheduler).** Any scheduler that can send an HTTP request (cron-job.org, UptimeRobot webhooks, a server cron) can start the workflow through GitHub's API, which is steadier than GitHub's own best-effort cron:
+
+```bash
+curl -fsS -X POST \
+  -H "Accept: application/vnd.github+json" \
+  -H "Authorization: Bearer <FINE_GRAINED_TOKEN>" \
+  https://api.github.com/repos/MundatiC/clinic-booking-system/actions/workflows/keepalive.yml/dispatches \
+  -d '{"ref":"main"}'
+# 204 No Content = queued.  Alternative: POST .../dispatches on the repo with {"event_type":"keepalive"}
+```
+
+Use a **fine-grained personal access token** limited to *this repository only*, with *Actions: Read and write* and nothing else (plus *Contents: Read and write* only if you use the `repository_dispatch` form). Give it an expiry date, and revoke it if the scheduler is ever compromised. A leaked token can only start or cancel workflow runs here, not read code or secrets. The workflow's `concurrency` group drops overlapping runs, so cron and external triggers can coexist.
+
 ---
 
 ## Known limitations
 
-- **No authentication** (the spec defines none). Anyone holding an appointment UUID can view, cancel or reschedule it (§1.8 has the mitigations and the plan).
+- ~~No authentication~~: fixed in phase 2 ([Accounts and email](#accounts-and-email)). What's still missing on accounts: MFA, account deletion/export, a breached-password check, and staff management beyond the seeded account.
+- Lockout counters, like rate limits, are **per process, in memory**: they reset on restart and aren't shared between instances. Per-email lockout can also be used to lock someone out for 15 minutes on purpose (the usual lockout trade-off). Moving to Redis fixes both.
+- Emails have **no retry**. A mail outage means a lost verification or reset email; the user can request it again.
+- The UI's database-backed tests and its browser walkthrough ran only in CI or not at all: the dev laptop ran out of memory for Docker. `TODO(Caleb)`: click through sign-up → book → change → cancel once after `docker compose up`.
 - Rate limiting is **per process, in memory**. Multiple instances need Redis or edge limiting. Behind Render, client IPs come from `X-Forwarded-For` (`FORWARDED_ALLOW_IPS="*"`, safe only because Render's proxy is the sole ingress).
 - Free tier: cold starts (mitigated by keep-alive), the free Postgres expires, and there are no backups.
 - Doctors' holidays/time off, variable durations, and notifications are not implemented (growth path §1.9).
-- `POST /patients` reveals whether an email is registered (decision 25).
+- `POST /patients` reveals whether an email is registered (decision 25). It is staff-only now, which limits this to staff.
 - The Render side (deploy hook, `RENDER_GIT_COMMIT`, the blueprint) is **not verified** yet, because no Render account was available to this session.
 
 ---
@@ -456,7 +660,12 @@ Things that need Caleb's accounts, so they were not faked:
 7. Update the **Live URL** line at the top of this README (replace the `TODO(Caleb)`), and the docs link.
 8. Note the free Postgres expiry date from the Render dashboard (keep-alive trade-off d).
 9. Optional: an UptimeRobot / cron-job.org monitor on `https://<url>/health`.
-10. Branch protection is **already configured** (see §3). Optionally require approvals or enforce it for admins under Settings → Branches → `main`.
+10. Branch protection is **already configured** (see §3). Optionally require approvals or enforce it for admins under Settings → Branches → `main`. Consider adding `Schemathesis API fuzzing`, `OWASP ZAP API scan (DAST)` and the `Analyze (...)` CodeQL checks to the required list.
+11. **Email (Resend):** create a Resend account, verify a sending domain (Domains → add DNS records) or use Resend's test sender, and create an API key. On the Render service set:
+    `SMTP_HOST=smtp.resend.com`, `SMTP_PORT=465`, `SMTP_SECURITY=ssl`, `SMTP_USER=resend`, `SMTP_PASSWORD=<API key>`, `MAIL_FROM=The Clinic <bookings@your-domain>`, and `PUBLIC_BASE_URL=https://<your public URL>`. Links in emails and the CSRF check depend on that last one being exact.
+12. **Staff account in production:** set `STAFF_EMAIL` and a long `STAFF_PASSWORD` on Render (the seed creates or updates the account on each deploy). Never reuse the local compose default.
+13. **Keep-alive external trigger:** create the fine-grained token described in [Keep-alive](#keep-alive-free-tier-cold-starts) and add the `curl` call to your scheduler (every 10 minutes is enough).
+14. Run the memory-heavy checks yourself when you have the RAM ([commands](#running-the-security-tools-locally)), or rely on the CI runs on each PR.
 
 ---
 
@@ -470,6 +679,12 @@ Things that need Caleb's accounts, so they were not faked:
 - **Section 2 (API):** the AI wrote all application code and the 121 tests, ran them against Postgres, and fixed what they exposed.
 - **Section 3 (deployment):** the AI wrote the Dockerfile, compose, CI/deploy/keep-alive workflows, the smoke and keep-alive scripts and `render.yaml`. It resolved action versions to commit SHAs via the GitHub API, verified `docker compose up` from a fresh clone, and ran EXPLAIN on a loaded database. Creating the Render service and secrets could not be done by AI.
 - **Section 4:** the AI kept `AI_LOG.md` during the work and drafted this reflection from it. The parts that need Caleb's own reasoning are left as `TODO(Caleb)`.
+- **Phase 2 (after the core was merged):** Caleb asked for auth, a UI, email, and security testing tools.
+  - The AI wrote the account system, email templates, UI, security tests, and the scanner workflows.
+  - It ran the scanners locally until the laptop ran out of memory for Docker. After that, heavy checks moved to GitHub Actions at Caleb's request.
+  - Two skills guided it: *frontend-design*, read from the plugin marketplace on disk, and *ponytail*, a third-party skill Caleb linked. The AI read it fully before installing only its markdown file.
+
+**2b. A second example from phase 2:** the AI didn't trust a clean-looking ZAP report. It counted the status codes the scan produced in the API logs, found **1,333 of 3,188 requests were 401**, and traced it to ZAP calling `/auth/logout` with its own token. After excluding logout, the CI run passed 120/120 rules. Its 401 count wasn't re-checked, because CI doesn't keep the API logs, so that's a remaining gap. Without the local check, "ZAP clean" would have meant "ZAP mostly saw the login wall".
 
 **2. An AI suggestion that improved the work**
 
@@ -483,8 +698,13 @@ A second, smaller one: the AI proposed proving the concurrency test is meaningfu
 - **Caught by reading framework source:** the first body-size limit raised a custom error that FastAPI would have silently converted into a generic 400. Checking `fastapi/routing.py` showed only `HTTPException` is re-raised.
 - **Caught by Caleb:** the AI's default was to add a `Co-Authored-By: Claude` trailer to commits. Caleb stopped the session and set a rule against it, and the already-pushed first commit was rewritten.
 - **A weak test, caught on re-read:** the AI wrote one parametrized test asserting `code in {code, "TOO_SOON", "OUTSIDE_WORKING_HOURS"}`, which could pass for the wrong reason. It was tightened to an exact match before it was ever relied on.
+- **Phase 2: a security flaw the AI wrote, then caught on self-review.**
+  - The first sign-up hashed the password only for *new* emails, so existing emails answered faster. That's a timing oracle for account enumeration, in the very feature built to prevent enumeration. Fixed by always hashing first.
+  - Schemathesis then found three bugs the hand-written tests had missed: a 500 on an integer overflow, an undocumented 400, and `?date=0` accepted.
+- **Phase 2: caught by Caleb.** A CodeQL JavaScript job failed on PR #7 because the AI had enabled JS analysis on a branch with no JS yet. Caleb spotted it from a GitHub email, and the job was moved to the UI PR.
+- **Phase 2: a tooling mistake made twice.** Backslash escapes sent through shell heredocs reached files as literal text (`\n` inside a Dockerfile `RUN`) or as raw control bytes in a regex. The AI changed how it edits files after the second time.
 
 **4. Two decisions made without AI**
 
 - **Keep-alive pinger** (decision 18, Decision: Caleb). Why I trusted my own judgment here: `TODO(Caleb)`: in your own words.
-- **Second decision:** `TODO(Caleb)`: pick one that was genuinely yours before the session and explain it in your own words. Candidates that appear in your brief, so the AI did not originate them (only you know whether you decided them unaided): using real Postgres instead of SQLite for tests; enforcing double-booking prevention in the database rather than in application code; non-enumerable UUIDs for patients and appointments; computing slots instead of storing them; Render + GitHub Actions as the platform.
+- **Second decision:** `TODO(Caleb)`: pick one that was genuinely yours before the session and explain it in your own words. Candidates that appear in your brief, so the AI did not originate them (only you know whether you decided them unaided): using real Postgres instead of SQLite for tests; enforcing double-booking prevention in the database rather than in application code; non-enumerable UUIDs for patients and appointments; computing slots instead of storing them; Render + GitHub Actions as the platform. From phase 2, these were Caleb's own ideas rather than AI suggestions: using **Resend** for email, and triggering the keep-alive from an **external service**. Keeping the cron as well, and the auth approach (password + sessions), were chosen by Caleb *from options the AI proposed*, so they may not count as "without AI".

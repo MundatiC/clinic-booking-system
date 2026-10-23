@@ -85,3 +85,8 @@ Caleb gave Claude Code one long, detailed brief: the assessment's verbatim requi
     - The first idea for date picking, a row of identical rounded "next 7 days" chips, matched the skill's "SaaS-card kit" tell and was replaced with a native date input and previous/next buttons.
     - The day strip needs working windows, so the availability response gained `working_hours`.
     - Self-review before running caught two JS flaws: messages set just before navigation were wiped by the navigation handler, and `aria-current` was handled twice.
+30. **CI on the UI PR (#8) found three more issues.** The database-backed tests all passed in CI.
+    - **CodeQL `js/user-controlled-bypass`:** the verify page auto-POSTed the emailed token on load. The token isn't exploitable as such, but auto-acting on a link lets link scanners, or a link from someone else, act for the user. Now it needs a "Confirm my email" click (tested).
+    - **CodeQL `py/bad-tag-filter`:** the AI's "no inline script" test matched `<script` case-sensitively and would miss `<SCRIPT>`. Made case-insensitive.
+    - **ZAP 100001** (unexpected content type): the API scan crawled the UI's HTML/CSS/JS. The API scan now excludes `/` and `/assets/`, which the baseline scan covers.
+31. **The AI repeated the heredoc-escaping mistake a third time** (a Python patch script with regexes), right after logging it. This time the script's own assertions stopped it before it wrote anything. The edits were redone with the editor tool.
