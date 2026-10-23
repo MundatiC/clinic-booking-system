@@ -35,18 +35,26 @@ services:
       # Public origin: links in emails and the trusted Origin for cookie writes (CSRF).
       - key: PUBLIC_BASE_URL
         sync: false
-      # Email via Resend's SMTP relay; the API key goes in SMTP_PASSWORD.
+      # Email via Gmail SMTP: reaches any inbox with no sending domain. SMTP_USER is the
+      # Gmail address, SMTP_PASSWORD a Google app password, MAIL_FROM the same address.
       - key: SMTP_HOST
-        value: smtp.resend.com
+        value: smtp.gmail.com
       - key: SMTP_PORT
-        value: "465"
+        value: "587"
       - key: SMTP_SECURITY
-        value: ssl
+        value: starttls
       - key: SMTP_USER
-        value: resend
+        sync: false
       - key: SMTP_PASSWORD
         sync: false
       - key: MAIL_FROM
+        sync: false
+      # Reviewers must never be blocked by an email that lands in spam: new accounts
+      # sign in at once; claiming a walk-in record still needs the emailed link.
+      - key: REQUIRE_EMAIL_VERIFICATION
+        value: "false"
+      # Verified login for the seeded demo patient (demo.patient@example.com).
+      - key: DEMO_PATIENT_PASSWORD
         sync: false
       # Staff login created/updated by the seed on each deploy.
       - key: STAFF_EMAIL

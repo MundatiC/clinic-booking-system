@@ -43,6 +43,10 @@ services:
       # Local-only staff login for trying the staff view. Change it; never use in production.
       STAFF_EMAIL: ${STAFF_EMAIL:-staff@example.com}
       STAFF_PASSWORD: ${STAFF_PASSWORD:-reception desk for local testing}
+      # Local-only demo patient login (demo.patient@example.com), no email needed.
+      DEMO_PATIENT_PASSWORD: ${DEMO_PATIENT_PASSWORD:-demo patient for local testing}
+      # Mailpit catches every email, so the full confirm-your-email flow works locally.
+      REQUIRE_EMAIL_VERIFICATION: ${REQUIRE_EMAIL_VERIFICATION:-true}
     ports:
       - "8000:8000"
     read_only: true

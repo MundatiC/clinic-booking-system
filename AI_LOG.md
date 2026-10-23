@@ -93,3 +93,15 @@ Caleb gave Claude Code one long, detailed brief: the assessment's verbatim requi
 32. **The ZAP logout hook never worked, and an AI-added CI check proved it.** After adding a step that counts 401s on non-auth paths from the API logs after the scan, CI showed **2,350 of 3,215** requests were 401, even with the hook. Likely cause: ZAP calls every operation while *importing* the spec, before the hook's exclusions apply. The fix was to scan a copy of the spec without `/auth/logout`. The next CI run had **0 of 3,175** non-auth 401s. The earlier README claim ("logout excluded via a hook") had been wrong and was corrected.
 33. **ZAP baseline on the UI page found a real issue.** Without JS (spiders, or a user whose script fails to load), the forms submitted via GET, putting email and password in the URL. Every form is now `method="post"` (tested). COEP was added. Three informational rules are ignored with written reasons.
 34. A scoping regex required `/` after the host, so it missed `http://api:8000`; found by the next CI run and fixed.
+35. **Local end-to-end run, after Caleb freed up memory (2026-10-23).**
+    - Caleb ran the full suite (201 passed) and Schemathesis himself.
+    - The AI ran a 51-check API script against his Docker stack. 50 passed. The one failure was the AI's own expectation (it expected 400 for a reused link; the app correctly answers 422 `INVALID_TOKEN`).
+    - The AI then clicked through the UI in Chrome and found three bugs it had written:
+      - After signing in from a protected page you stayed on the sign-in form, because navigating to the hash you are already on fires no `hashchange`. Its first fix (a role check) was wrong; re-testing in the browser showed the real cause.
+      - The booking confirmation appeared off-screen.
+      - An emptied list showed blank space.
+    - The AI also claimed a missing label on the cancel-reason box, then retracted it on reading the markup (the textarea is inside its label; the browser tool just didn't show the name).
+    - The AI started a second app server to check its fixes; Caleb stopped it ("that itself eats more memory"). Rule: ask him to rebuild the existing stack instead.
+36. **Caleb spotted that required email confirmation would block every reviewer on the demo**: without a verified domain, Resend only delivers to its own account owner. He chose, from three options, to make confirmation a setting (off on Render) and to send through Gmail SMTP.
+    - While implementing it, the AI found that switching confirmation off would let anyone sign up with a walk-in patient's email and see their appointments. Accounts claiming an earlier walk-in record therefore still need the emailed link (tested).
+    - Also found while preparing for reviewers: Swagger had no Authorize button (the OpenAPI spec declared no security scheme), and there was no ready-made patient login. Fixed with an `HTTPBearer` scheme and an optional seeded demo login.

@@ -48,9 +48,14 @@ class Settings(BaseSettings):
     session_max_hours: int = Field(default=12, gt=0)
     login_max_failures: int = Field(default=5, gt=0)
     login_lockout_minutes: int = Field(default=15, gt=0)
+    # Off where the mail provider can't reach arbitrary inboxes (a demo without a sending
+    # domain): new accounts sign in at once. Claiming a walk-in record always needs it.
+    require_email_verification: bool = True
     # Optional: seed creates/updates one staff account from these (never committed).
     staff_email: str | None = None
     staff_password: SecretStr | None = None
+    # Optional: seed gives the demo patient a verified login with this password.
+    demo_patient_password: SecretStr | None = None
 
     # SMTP. Dev: Mailpit (docker compose). Production: Resend's SMTP relay
     # (smtp.resend.com, port 465, security "ssl", user "resend", password = API key).

@@ -6,7 +6,9 @@ Safe to run on every deploy:
   (appointments are never touched);
 - the demo patient is upserted by email;
 - if STAFF_EMAIL and STAFF_PASSWORD are set, that staff account is created or its
-  password updated (credentials never live in the repo).
+  password updated (credentials never live in the repo);
+- if DEMO_PATIENT_PASSWORD is set, the demo patient gets a verified login, so
+  reviewers can sign in without receiving email.
 
 Usage: python -m scripts.seed
 """
@@ -15,11 +17,12 @@ import logging
 import uuid
 from datetime import time
 
+from pydantic import SecretStr
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.security import check_password_policy, hash_password
 from app.db.models import Doctor, Patient, User, UserRole, WorkingHours
 from app.db.session import get_sessionmaker
@@ -77,7 +80,35 @@ DEMO_PATIENT = {
 }
 
 
-def seed(session: Session) -> None:
+def _login(
+    session: Session,
+    email: str,
+    secret: SecretStr,
+    role: UserRole,
+    patient_id: uuid.UUID | None = None,
+) -> None:
+    """Create or update a verified login (credentials come from env, never the repo)."""
+    email = email.strip().lower()
+    password = secret.get_secret_value()
+    check_password_policy(password, email)
+    password_hash = hash_password(password)
+    session.execute(
+        insert(User)
+        .values(
+            email=email,
+            password_hash=password_hash,
+            role=role,
+            patient_id=patient_id,
+            email_verified_at=func.now(),
+        )
+        .on_conflict_do_update(
+            index_elements=[User.email],
+            set_={"password_hash": password_hash, "role": role, "patient_id": patient_id},
+        )
+    )
+
+
+def seed(session: Session, settings: Settings | None = None) -> None:
     for doctor_id, name, specialty, schedule in DOCTORS:
         session.execute(
             insert(Doctor)
@@ -98,23 +129,16 @@ def seed(session: Session) -> None:
         insert(Patient).values(**DEMO_PATIENT).on_conflict_do_nothing(index_elements=["email"])
     )
 
-    settings = get_settings()
+    settings = settings or get_settings()
     if settings.staff_email and settings.staff_password:
-        email = settings.staff_email.strip().lower()
-        password = settings.staff_password.get_secret_value()
-        check_password_policy(password, email)
-        session.execute(
-            insert(User)
-            .values(
-                email=email,
-                password_hash=hash_password(password),
-                role=UserRole.STAFF,
-                email_verified_at=func.now(),
-            )
-            .on_conflict_do_update(
-                index_elements=[User.email],
-                set_={"password_hash": hash_password(password), "role": UserRole.STAFF},
-            )
+        _login(session, settings.staff_email, settings.staff_password, UserRole.STAFF)
+    if settings.demo_patient_password:
+        _login(
+            session,
+            str(DEMO_PATIENT["email"]),
+            settings.demo_patient_password,
+            UserRole.PATIENT,
+            DEMO_PATIENT_ID,
         )
 
     # Explicit ids were inserted, so move the sequence past them for future inserts.

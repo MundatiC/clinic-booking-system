@@ -93,6 +93,7 @@ function flash(message, isError = false) {
   box.classList.toggle("is-error", isError);
   box.hidden = !message;
   box.dataset.at = String(Date.now());
+  if (message) box.scrollIntoView({ block: "nearest" }); // results land below the fold
 }
 
 function formError(form, err) {
@@ -147,7 +148,12 @@ function parseHash() {
   return { name: name || "book", params: new URLSearchParams(query ?? "") };
 }
 const currentView = () => parseHash().name;
-const go = (name) => { location.hash = `#/${name}`; };
+const go = (name) => {
+  if (location.hash === `#/${name}`) route(); // same hash fires no hashchange
+  else location.hash = `#/${name}`;
+};
+const home = () => (state.me?.role === "staff" ? "schedule" : "book");
+const ROLE_VIEWS = { appointments: "patient", schedule: "staff" };
 
 // Email links carry tokens in the fragment (never sent to servers); read once, then
 // wipe them from the address bar and history.
@@ -161,8 +167,11 @@ let pendingToken = null;
 async function route() {
   let { name, params } = parseHash();
   if (!TITLES[name]) name = "book";
-  if (name === "appointments" && state.me?.role !== "patient") { state.returnTo = name; name = "signin"; }
-  if (name === "schedule" && state.me?.role !== "staff") { state.returnTo = name; name = "signin"; }
+  if (ROLE_VIEWS[name] && state.me?.role !== ROLE_VIEWS[name]) {
+    // Signed in with the other role: their own home page, not a sign-in form again.
+    if (state.me) name = home();
+    else { state.returnTo = name; name = "signin"; }
+  }
   if ((name === "verify" || name === "reset") && params.get("token")) pendingToken = takeToken(params, name);
 
   $$("[data-view]").forEach((s) => { s.hidden = s.dataset.view !== name; });
@@ -362,7 +371,9 @@ function visitItem(appt, { who, canMove }) {
     await busy($('button[type="submit"]', form), async () => {
       try {
         await api("PATCH", `/appointments/${appt.id}/cancel`, { reason: form.elements.reason.value });
+        const list = node.parentElement;
         node.remove();
+        list.nextElementSibling.hidden = list.children.length > 0; // the list's "nothing here" note
         flash(`Cancelled your ${dayLabel(dayOf(appt.start_at))} ${timeOf(appt.start_at)} appointment. The time is free for someone else now.`);
       } catch (err) { formError(form, err); }
     });
@@ -458,7 +469,7 @@ function wireForms() {
     }
     form.reset();
     flash("");
-    const target = state.returnTo ?? (state.me.role === "staff" ? "schedule" : "book");
+    const target = state.returnTo ?? home();
     state.returnTo = null;
     go(target);
   });
@@ -468,13 +479,14 @@ function wireForms() {
       go("check-email");
     });
   });
+  // The server's wording says whether the emailed link is needed before signing in.
   onSubmit("#signup-form", async (form) => {
-    await api("POST", "/auth/register", values(form));
+    $("#check-email-text").textContent = (await api("POST", "/auth/register", values(form))).message;
     form.reset();
     go("check-email");
   });
   onSubmit("#forgot-form", async (form) => {
-    await api("POST", "/auth/forgot-password", values(form));
+    $("#check-email-text").textContent = (await api("POST", "/auth/forgot-password", values(form))).message;
     form.reset();
     go("check-email");
   });

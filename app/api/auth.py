@@ -28,6 +28,8 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 guarded = [Depends(limit_auth)]
 
 CHECK_EMAIL = "If that email can be used, we have sent a message to it. Check your inbox."
+# Depends only on configuration, never on the email, so it reveals nothing.
+SIGNED_UP = "If that email can be used, your account is ready: sign in now. We've also emailed you."
 
 
 def _me(user: User) -> MeOut:
@@ -54,9 +56,9 @@ def _me(user: User) -> MeOut:
     dependencies=guarded,
     responses=error_responses(403, 413, 422, 429),
 )
-def register(body: RegisterIn, auth: AuthServiceDep) -> MessageOut:
+def register(body: RegisterIn, auth: AuthServiceDep, settings: SettingsDep) -> MessageOut:
     auth.register(body.full_name, body.phone, str(body.email), body.password)
-    return MessageOut(message=CHECK_EMAIL)
+    return MessageOut(message=CHECK_EMAIL if settings.require_email_verification else SIGNED_UP)
 
 
 @router.post(
