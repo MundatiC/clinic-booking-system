@@ -20,10 +20,14 @@ router = APIRouter(prefix="/patients", tags=["patients"])
     dependencies=[Depends(limit_writes)],
     responses=error_responses(409, 413, 422, 429),
 )
-def register(body: PatientCreate, service: PatientServiceDep) -> PatientOut:
+def register(body: PatientCreate, service: PatientServiceDep, settings: SettingsDep) -> PatientOut:
     p = service.register(body.full_name, body.phone, str(body.email))
     return PatientOut(
-        id=p.id, full_name=p.full_name, phone=p.phone, email=p.email, created_at=p.created_at
+        id=p.id,
+        full_name=p.full_name,
+        phone=p.phone,
+        email=p.email,
+        created_at=p.created_at.astimezone(settings.tz),
     )
 
 
