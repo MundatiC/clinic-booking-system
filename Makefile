@@ -5,7 +5,7 @@ UV ?= uv
 install:        ## install all deps (incl. dev) from the lockfile
 	$(UV) sync --frozen
 
-db:             ## start only Postgres (host port 5433)
+db:             ## start only Postgres (host port 55432)
 	docker compose up -d db
 
 run:            ## run the API with autoreload against local Postgres
