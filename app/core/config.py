@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     environment: Literal["local", "test", "production"] = "local"
     log_level: str = "INFO"
 
-    database_url: str = "postgresql+psycopg://clinic:clinic@localhost:5433/clinic"
+    database_url: str = "postgresql+psycopg://clinic:clinic@localhost:55432/clinic"
     db_pool_size: int = 5
     db_max_overflow: int = 5
     db_pool_timeout_seconds: int = 10

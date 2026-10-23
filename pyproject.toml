@@ -36,6 +36,10 @@ target-version = "py312"
 select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF", "DTZ", "PL"]
 ignore = ["PLR0913", "PLR2004", "B008"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["app", "scripts", "tests"]
+known-third-party = ["alembic"]
+
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106", "PLR0915", "PLR2004"]
 "alembic/**" = ["E501"]
