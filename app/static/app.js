@@ -210,6 +210,7 @@ async function route() {
   });
   document.title = `${TITLES[name]}: The Clinic`;
   document.body.dataset.page = name; // page-specific accents in CSS (the logo)
+  setMenu(false);
   window.scrollTo(0, 0); // a new view starts at its top, not where the last one was scrolled
   $("#main").focus({ preventScroll: true });
 
@@ -268,7 +269,9 @@ function renderWeek(min, max) {
 }
 
 async function showBook() {
+  if (!state.day) setDay(todayIso());
   if (!state.doctors.length) {
+    $("#strip").replaceChildren(el("li", { class: "strip-empty", text: "Loading times…" }));
     try {
       state.doctors = await api("GET", "/doctors");
     } catch (err) {
@@ -277,7 +280,6 @@ async function showBook() {
     }
   }
   state.doctorId ??= state.doctors[0]?.id ?? null;
-  if (!state.day) setDay(todayIso());
   renderDoctors();
   const note = $("#reschedule-note");
   note.hidden = !state.reschedule;
@@ -293,13 +295,19 @@ function windowSlots(range) {
   const [start, end] = range.split("-").map((t) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; });
   const out = [];
   for (let t = Math.ceil(start / 30) * 30; t + 30 <= end; t += 30) {
-    out.push(`${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`);
+    out.push(`${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`); // taste-skill-ignore: HH:MM clock times
   }
   return out;
 }
 
 const gapRow = (from, to) =>
   el("li", { class: "gap" }, icon("cup"), el("span", { text: `Closed ${from}–${to}` }), el("span", { class: "tag", text: "Break" }));
+
+// The way out sits with the "nothing here" message, not back in the date card.
+const nextDayButton = () => el("button", {
+  type: "button", class: "soft sm", disabled: $("#next-day").disabled, text: "Show the next day",
+  onclick: () => { setDay(addDays(state.day, 1)); loadStrip(); },
+});
 
 async function loadStrip() {
   const strip = $("#strip");
@@ -324,7 +332,8 @@ async function loadStrip() {
   }
 
   if (!data.working_hours.length) {
-    strip.replaceChildren(el("li", { class: "strip-empty", text: `${doctor} doesn't work on ${dayLabel(state.day)}. Try another day.` }));
+    strip.replaceChildren(el("li", { class: "strip-empty" },
+      el("p", { text: `${doctor} doesn't work on ${dayLabel(state.day)}.` }), nextDayButton()));
     return;
   }
   const ranges = data.working_hours.map((r) => r.replace("-", "–"));
@@ -347,10 +356,10 @@ async function loadStrip() {
         parts.push(el("li", { class: "slot is-current" }, el("p", { class: "slot-row" },
           el("time", { text: hhmm }), el("span", { class: "what", text: "Your current time" }), el("span", { class: "tag", text: "Current" }))));
       } else if (!slot) {
-        // Not free: either booked, or already too close (bookings need an hour's notice).
-        const late = new Date(`${state.day}T${hhmm}:00+03:00`) < Date.now() + 3600000;
+        // Too close to book (an hour's notice) means gone for good: leave it out.
+        if (new Date(`${state.day}T${hhmm}:00+03:00`) < Date.now() + 3600000) continue;
         parts.push(el("li", { class: "slot is-off" }, el("p", { class: "slot-row" },
-          el("time", { text: hhmm }), el("span", { class: "what", text: late ? "Too late to book" : "Not available" }), el("span", { class: "tag", text: late ? "Past" : "Taken" }))));
+          el("time", { text: hhmm }), el("span", { class: "what", text: "Not available" }), el("span", { class: "tag", text: "Taken" }))));
       } else {
         parts.push(el("li", { class: "slot" }, el("button", {
           type: "button", class: "slot-btn", "aria-pressed": "false",
@@ -360,8 +369,11 @@ async function loadStrip() {
       }
     }
   });
+  // A break only means something between times that are still shown.
+  while (parts[0]?.classList.contains("gap")) parts.shift();
+  while (parts.at(-1)?.classList.contains("gap")) parts.pop();
   if (!data.slots.length) {
-    parts.push(el("li", { class: "strip-empty", text: "No free times left on this day. Try the next day." }));
+    parts.push(el("li", { class: "strip-empty" }, el("p", { text: "No free times left on this day." }), nextDayButton()));
   }
   strip.replaceChildren(...parts);
 }
@@ -606,7 +618,20 @@ async function confirmEmail(event) {
   });
 }
 
+// Phones fold the nav into a menu button that opens a full-screen sheet.
+function setMenu(open) {
+  const button = $("#menu-btn");
+  $(".bar").classList.toggle("is-open", open);
+  button.setAttribute("aria-expanded", String(open));
+  button.setAttribute("aria-label", open ? "Close menu" : "Menu");
+  $("use", button).setAttribute("href", open ? "#i-x" : "#i-menu");
+}
+
 function wireForms() {
+  $("#menu-btn").addEventListener("click", () => setMenu(!$(".bar").classList.contains("is-open")));
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && $(".bar").classList.contains("is-open")) { setMenu(false); $("#menu-btn").focus(); }
+  });
   onSubmit("#signin-form", async (form) => {
     $("#resend-box").hidden = true;
     try {
