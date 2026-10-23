@@ -128,7 +128,7 @@ def test_parse_rate() -> None:
 
 
 def test_health_and_ready(client: TestClient) -> None:
-    assert client.get("/health").json() == {"status": "ok"}
+    assert client.get("/health").json() == {"status": "ok", "version": "dev"}
     assert client.get("/ready").json() == {"status": "ready"}
 
 

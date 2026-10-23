@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.api.deps import SessionDep
+from app.api.deps import SessionDep, SettingsDep
 from app.core.errors import ServiceUnavailableError
 from app.schemas.common import error_responses
 
@@ -12,8 +12,9 @@ router = APIRouter(tags=["health"])
 
 
 @router.get("/health", summary="Liveness probe (no DB access)")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health(settings: SettingsDep) -> dict[str, str]:
+    # `version` lets the deploy pipeline tell the new release from the old one.
+    return {"status": "ok", "version": settings.git_commit}
 
 
 @router.get(

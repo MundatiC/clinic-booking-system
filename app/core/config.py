@@ -4,7 +4,7 @@ from functools import lru_cache
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from app.core.ratelimit import parse_rate
@@ -15,6 +15,10 @@ class Settings(BaseSettings):
 
     environment: Literal["local", "test", "production"] = "local"
     log_level: str = "INFO"
+    # Deployed commit. Render injects RENDER_GIT_COMMIT; the deploy smoke test waits for it.
+    git_commit: str = Field(
+        default="dev", validation_alias=AliasChoices("GIT_COMMIT", "RENDER_GIT_COMMIT")
+    )
 
     database_url: str = "postgresql+psycopg://clinic:clinic@localhost:55432/clinic"
     db_pool_size: int = 5

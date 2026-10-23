@@ -1,0 +1,58 @@
+name: Deploy
+
+# A PR merged into main is a push to main. Re-run the full CI on the merge
+# result, then deploy to Render and smoke-test the public URL.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false  # never interrupt a deploy half-way
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Deploy to Render + smoke test
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment:
+      name: production
+      url: ${{ vars.APP_URL }}
+    steps:
+      - name: Check deploy configuration
+        id: cfg
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          APP_URL: ${{ vars.APP_URL }}
+        run: |
+          if [ -z "$HOOK" ] || [ -z "$APP_URL" ]; then
+            echo "::warning::RENDER_DEPLOY_HOOK_URL secret or APP_URL variable not set; skipping deploy."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        if: steps.cfg.outputs.enabled == 'true'
+        with:
+          sparse-checkout: scripts
+
+      - name: Trigger Render deploy
+        if: steps.cfg.outputs.enabled == 'true'
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: curl --fail --silent --show-error --max-time 30 -X POST "$HOOK" -o /dev/null
+
+      - name: Smoke test (waits for this commit to be live)
+        if: steps.cfg.outputs.enabled == 'true'
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+        run: python3 scripts/smoke.py --url "$APP_URL" --expect-version "$GITHUB_SHA" --timeout 1200
