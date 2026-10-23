@@ -23,6 +23,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "ruff>=0.17.2",
+    "schemathesis>=4.32.4",
 ]
 
 [tool.uv]
@@ -54,7 +55,8 @@ files = ["app", "scripts"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers"
+addopts = "-ra --strict-markers -m 'not fuzz'"
+markers = ["fuzz: Schemathesis property-based API fuzzing (make fuzz)"]
 
 [tool.coverage.run]
 source = ["app"]

@@ -1,15 +1,33 @@
+import re
 from datetime import date as Date
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Path, Query
+from pydantic import BeforeValidator
 
 from app.api.deps import BookingServiceDep, SessionDep, SettingsDep, StaffUser
 from app.repositories import doctors as doctors_repo
 from app.schemas.appointments import AppointmentOut
-from app.schemas.common import error_responses
+from app.schemas.common import INT32_MAX, error_responses
 from app.schemas.doctors import AvailabilityOut, DoctorOut, ScheduleItem, SlotOut
 
 router = APIRouter(prefix="/doctors", tags=["doctors"])
+DoctorId = Annotated[int, Path(gt=0, le=INT32_MAX)]
+_ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _iso_only(value: object) -> object:
+    # Pydantic would also read "0" or "1700000000" as Unix timestamps (found by Schemathesis).
+    if isinstance(value, str) and not _ISO_DATE.fullmatch(value):
+        raise ValueError("date must be YYYY-MM-DD")
+    return value
+
+
+LocalDate = Annotated[
+    Date,
+    BeforeValidator(_iso_only),
+    Query(description="Clinic-local date, YYYY-MM-DD", examples=["2026-11-02"]),
+]
 
 
 @router.get("", summary="List active doctors")
@@ -31,8 +49,8 @@ def list_doctors(session: SessionDep) -> list[DoctorOut]:
     responses=error_responses(404, 422),
 )
 def availability(
-    doctor_id: int,
-    date: Annotated[Date, Query(description="Clinic-local date", examples=["2026-11-02"])],
+    doctor_id: DoctorId,
+    date: LocalDate,
     service: BookingServiceDep,
     settings: SettingsDep,
 ) -> AvailabilityOut:
@@ -53,8 +71,8 @@ def availability(
     responses=error_responses(401, 404, 422),
 )
 def schedule(
-    doctor_id: int,
-    date: Annotated[Date, Query(description="Clinic-local date", examples=["2026-11-02"])],
+    doctor_id: DoctorId,
+    date: LocalDate,
     _: StaffUser,
     service: BookingServiceDep,
     settings: SettingsDep,

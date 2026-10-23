@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   ci:
-    uses: ./.github/workflows/ci.yml
+    uses: ./.github/workflows/ci.yml  # zizmor: ignore[self-repository] documented local-reusable-workflow form
 
   deploy:
     name: Deploy to Render + smoke test
@@ -43,6 +43,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         if: steps.cfg.outputs.enabled == 'true'
         with:
+          persist-credentials: false
           sparse-checkout: scripts
 
       - name: Trigger Render deploy

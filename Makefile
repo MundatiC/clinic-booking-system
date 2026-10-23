@@ -1,6 +1,6 @@
 UV ?= uv
 
-.PHONY: install db run migrate seed test cov lint format typecheck audit up down
+.PHONY: install db run migrate seed test fuzz cov lint format typecheck audit up down
 
 install:        ## install all deps (incl. dev) from the lockfile
 	$(UV) sync --frozen
@@ -19,6 +19,9 @@ seed:           ## idempotent seed: 5 doctors, working hours, demo patient
 
 test:           ## run tests (needs Postgres; see TEST_DATABASE_URL)
 	$(UV) run pytest
+
+fuzz:           ## Schemathesis: fuzz every API operation from the OpenAPI schema
+	$(UV) run pytest -m fuzz -p no:logging -q
 
 cov:            ## tests with coverage
 	$(UV) run pytest --cov --cov-report=term-missing

@@ -1,0 +1,144 @@
+name: Security
+
+# Deeper security testing than ci.yml: API fuzzing, DAST, container and IaC
+# scanning, SAST, workflow and Dockerfile linting. On every PR, on main, and
+# weekly (new CVEs and rules appear even when the code doesn't change).
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * 1"  # Mondays 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    name: Schemathesis API fuzzing
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: clinic
+          POSTGRES_PASSWORD: clinic  # ephemeral CI container, not a secret
+          POSTGRES_DB: clinic
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U clinic -d clinic"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg://clinic:clinic@localhost:5432/clinic_test
+      FUZZ_EXAMPLES: "100"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
+        with:
+          version: "0.13.5"
+          enable-cache: true
+          python-version: "3.12"
+      - run: uv sync --frozen
+      - name: Fuzz every operation in the OpenAPI schema
+        run: uv run pytest -m fuzz -p no:logging -q
+
+  zap:
+    name: OWASP ZAP API scan (DAST)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RATE_LIMIT_ENABLED: "false"  # scan the app, not the rate limiter
+      ZAP_NETWORK: zapscan_default
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Start the stack (API + Postgres + Mailpit)
+        run: |
+          docker compose -p zapscan up -d --build --wait
+          curl -fsS --retry 30 --retry-delay 2 --retry-all-errors http://localhost:8000/ready
+      - name: Authenticated ZAP API scan (fails on any alert)
+        run: bash scripts/zap_scan.sh
+      - name: Upload ZAP report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: zap-report
+          path: zap/
+          if-no-files-found: ignore
+      - name: Stop the stack
+        if: always()
+        run: docker compose -p zapscan down -v
+
+  trivy:
+    name: Trivy (image CVEs + misconfiguration)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - run: docker build -t clinic-booking:scan .
+      - name: Image vulnerabilities (fixable HIGH/CRITICAL fail)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          image-ref: clinic-booking:scan
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          version: v0.76.1
+      - name: Dockerfile / compose / workflow misconfiguration
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: MEDIUM,HIGH,CRITICAL
+          exit-code: "1"
+          version: v0.76.1
+
+  semgrep:
+    name: Semgrep (SAST + secrets)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: semgrep/semgrep:1.182.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      # Excluded rule: a uv-level dependency cooldown would force downgrading FastAPI by
+      # 18 releases today. The cooldown is enforced where updates enter instead
+      # (Dependabot cooldown: 7 days), and every update PR runs pip-audit + full CI.
+      - run: >-
+          semgrep scan --metrics=off --error
+          --config p/python --config p/owasp-top-ten --config p/secrets
+          --config p/dockerfile --config p/github-actions --config p/javascript
+          --exclude-rule package_managers.uv.uv-missing-dependency-cooldown.uv-missing-dependency-cooldown
+
+  workflows-and-dockerfile:
+    name: zizmor + hadolint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
+        with:
+          version: "0.13.5"
+      - name: zizmor (GitHub Actions security audit)
+        run: uvx zizmor@1.31.1 --offline --format github .github/workflows
+      - name: hadolint (Dockerfile)
+        uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387  # v3.5.0
+        with:
+          dockerfile: Dockerfile

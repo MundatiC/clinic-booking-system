@@ -33,6 +33,8 @@ services:
       DATABASE_URL: postgresql+psycopg://clinic:clinic@db:5432/clinic
       ENVIRONMENT: local
       CORS_ORIGINS: http://localhost:8000
+      # The ZAP scan sets this to false so it tests the app, not the rate limiter.
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
       RUN_MIGRATIONS_ON_START: "true"
       RUN_SEED_ON_START: "true"
       PUBLIC_BASE_URL: http://localhost:8000

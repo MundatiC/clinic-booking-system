@@ -29,6 +29,7 @@ _BASE_SECURITY_HEADERS = {
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "no-referrer",
     "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",  # flagged by ZAP (90004)
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 }
 
