@@ -1,0 +1,36 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: clinic
+      POSTGRES_PASSWORD: clinic  # local development only
+      POSTGRES_DB: clinic
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clinic -d clinic"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://clinic:clinic@db:5432/clinic
+      ENVIRONMENT: local
+      CORS_ORIGINS: http://localhost:8000
+      RUN_MIGRATIONS_ON_START: "true"
+      RUN_SEED_ON_START: "true"
+    ports:
+      - "8000:8000"
+    read_only: true
+    tmpfs:
+      - /tmp
+
+volumes:
+  pgdata:
