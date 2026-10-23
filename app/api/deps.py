@@ -4,6 +4,7 @@ from typing import Annotated
 from urllib.parse import urlsplit
 
 from fastapi import BackgroundTasks, Depends, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.core.clock import Clock, get_clock
@@ -75,7 +76,19 @@ def request_token(request: Request) -> tuple[str | None, bool]:
     return request.cookies.get(SESSION_COOKIE), True
 
 
-def current_user(request: Request, auth: AuthServiceDep, settings: SettingsDep) -> User:
+# Documents the bearer scheme in OpenAPI (Swagger's "Authorize" button); the token itself
+# is read by request_token, which also accepts the browser cookie.
+bearer_scheme = HTTPBearer(
+    auto_error=False, description="Token from POST /auth/token. Browsers use the session cookie."
+)
+
+
+def current_user(
+    request: Request,
+    auth: AuthServiceDep,
+    settings: SettingsDep,
+    _bearer: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+) -> User:
     token, from_cookie = request_token(request)
     user = auth.authenticate(token) if token else None
     if user is None:

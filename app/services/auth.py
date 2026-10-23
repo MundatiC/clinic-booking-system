@@ -52,7 +52,7 @@ class AuthService:
             return
 
         # A walk-in patient registered by staff keeps their record. Linking is safe
-        # because nobody can sign in until they prove control of this inbox.
+        # because sign-in to a walk-in record needs proof of this inbox (see login).
         patient = users_repo.patient_by_email(self.session, email) or Patient(
             full_name=full_name, phone=phone, email=email
         )
@@ -101,7 +101,10 @@ class AuthService:
         if user is None or not password_ok:
             self.failures.hit(email)
             raise UnauthorizedError("INVALID_CREDENTIALS", "Email or password is incorrect.")
-        if user.email_verified_at is None:
+        # A walk-in's record (created by staff before this account) only goes to someone
+        # who proves they own the inbox, even when verification is otherwise optional.
+        claims_walk_in = user.patient is not None and user.patient.created_at < user.created_at
+        if user.email_verified_at is None and (self.s.require_email_verification or claims_walk_in):
             raise ForbiddenError(
                 "EMAIL_NOT_VERIFIED",
                 "Confirm your email first. We can send the link again.",

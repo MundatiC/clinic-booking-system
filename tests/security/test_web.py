@@ -135,3 +135,10 @@ def test_errors_never_echo_secrets(anon: TestClient) -> None:
 def test_openapi_documents_auth_errors(anon: TestClient) -> None:
     spec = anon.get("/openapi.json").json()
     assert {"401", "403"} <= set(spec["paths"]["/appointments"]["post"]["responses"])
+
+
+def test_openapi_offers_bearer_auth_on_protected_routes(anon: TestClient) -> None:
+    spec = anon.get("/openapi.json").json()
+    assert spec["components"]["securitySchemes"]["HTTPBearer"]["scheme"] == "bearer"
+    assert spec["paths"]["/appointments"]["post"]["security"] == [{"HTTPBearer": []}]
+    assert "security" not in spec["paths"]["/doctors"]["get"]

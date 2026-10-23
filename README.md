@@ -11,7 +11,84 @@ It has patient accounts with email verification and password reset, staff accoun
 
 > Section 1 (system design) was written and committed **before any application code** (first commit, `docs: system design`). Each later piece landed through its own PR, so the history shows CI running on PRs and deploy-on-merge.
 
-**Contents:** [1. System design](#1-system-design) · [Assumptions & decisions](#assumptions--decisions) · [Running locally](#running-locally) · [2. API reference](#2-api-reference) · [Accounts and email](#accounts-and-email) · [Security testing](#security-testing) · [3. Deployment and CI/CD](#3-deployment-and-cicd) · [Known limitations](#known-limitations) · [Manual steps](#manual-steps) · [4. AI reflection](#4-ai-reflection)
+**Contents:** [Try it](#try-it) · [Tools used](#tools-used) · [1. System design](#1-system-design) · [Assumptions & decisions](#assumptions--decisions) · [Decisions Caleb made](#decisions-caleb-made) · [Running locally](#running-locally) · [2. API reference](#2-api-reference) · [Accounts and email](#accounts-and-email) · [Security testing](#security-testing) · [3. Deployment and CI/CD](#3-deployment-and-cicd) · [Known limitations](#known-limitations) · [Manual steps](#manual-steps) · [4. AI reflection](#4-ai-reflection)
+
+---
+
+## Try it
+
+The API and the booking page are **one service on one origin**: the page at `/` is a static client of the same REST API that `/docs` documents. Everything the page does can also be done with curl or Swagger.
+
+### On Render (the live demo)
+
+| What | Where |
+|---|---|
+| Booking page | `<live-url>/` |
+| Swagger UI (try every endpoint) | `<live-url>/docs` · ReDoc: `<live-url>/redoc` |
+| Health / readiness | `<live-url>/health` · `<live-url>/ready` |
+| Demo patient login | `demo.patient@example.com` / `TODO(Caleb)`: the `DEMO_PATIENT_PASSWORD` set on Render |
+| Your own account | Sign up on the page. **No email confirmation is needed on the demo** ([why](#decisions-caleb-made)); a confirmation email is still sent |
+
+The first request after ~15 idle minutes can take up to a minute (free-tier cold start; see [Keep-alive](#keep-alive-free-tier-cold-starts)).
+
+**Testing the API in Swagger:**
+1. Open `/docs`, expand `POST /auth/token`, choose **Try it out** and send `{"email": "demo.patient@example.com", "password": "…"}`.
+2. Copy `access_token` from the response, click **Authorize** (top right), paste it, and confirm.
+3. Every protected endpoint now sends `Authorization: Bearer <token>`. Try `GET /doctors/1/availability?date=<a weekday>`, then `POST /appointments` with `{"doctor_id": 1, "start_at": "<a free slot start>"}`.
+
+**Testing the API with curl:** see [2. API reference](#2-api-reference). Replace `http://localhost:8000` with the live URL.
+
+### Locally (Docker, one command)
+
+```bash
+git clone https://github.com/MundatiC/clinic-booking-system && cd clinic-booking-system
+docker compose up --build
+```
+
+| What | Where |
+|---|---|
+| Booking page | http://localhost:8000 |
+| Swagger UI | http://localhost:8000/docs |
+| Every email the app sends (Mailpit) | http://localhost:8025 |
+| Demo patient | `demo.patient@example.com` / `demo patient for local testing` |
+| Staff (day schedule, walk-ins) | `staff@example.com` / `reception desk for local testing` |
+
+Locally, sign-up **does** require confirming the email. Mailpit catches the message, so open http://localhost:8025, click the link, then press **Confirm my email**. Those two passwords exist only in `docker-compose.yml` for local use. Production values come from Render env vars.
+
+**On Windows:**
+- `make` usually isn't installed. Every `make` target is a one-line command in the `Makefile`, for example `make test` is `python -m uv run pytest`.
+- If `docker compose up` fails with *"Ports are not available … 55432 … forbidden by its access permissions"*, Windows (Hyper-V/WSL NAT) has reserved a port range that includes 55432. Check with `netsh interface ipv4 show excludedportrange protocol=tcp`. In an **admin** PowerShell, `net stop winnat` then `net start winnat` releases the reservations.
+
+More options (no Docker, quality gates) are in [Running locally](#running-locally).
+
+### What was verified end to end (2026-10-23, local Docker stack)
+
+- **API:** a script ran 51 checks against the running stack. It covered sign-up, the confirmation email in Mailpit, sign-in, booking, a double-booking 409, reschedule, cancel, staff routes, IDOR (404s), the CSRF refusal, password reset revoking old sessions, logout and lockout. 50 passed. The one failure was the script's wrong expectation (a reused link answers 422 `INVALID_TOKEN`, as documented, not 400).
+- **UI**, clicked through in Chrome:
+  - Sign-up with a weak password is refused inline.
+  - The confirmation email renders, and opening the link only shows a button.
+  - Sign-in → book → change time → cancel with a reason, then sign out, then the staff day schedule.
+  - No console errors.
+  - This walkthrough found three UI bugs, all fixed and re-checked in the browser: sign-in from a protected page left you on the sign-in form, the booking confirmation was off-screen, and an emptied list showed blank space.
+- **Full test suite:** 201 passed on the dev laptop, plus Schemathesis (20 operations).
+
+---
+
+## Tools used
+
+| Area | Tools |
+|---|---|
+| Backend | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 (sync, psycopg 3), Alembic, argon2-cffi |
+| Database | PostgreSQL 16 (partial unique indexes, row locks), also used in every test |
+| Frontend | Vanilla HTML/CSS/JS served by the API (no framework, no build, no CDN), self-hosted Atkinson Hyperlegible Next font |
+| Email | stdlib `smtplib` + `string.Template`. Mailpit locally, Gmail SMTP on the demo (Resend once a domain is verified) |
+| Packaging / runtime | uv (locked deps), Docker (multi-stage, non-root, read-only root FS), docker compose |
+| Tests | pytest, coverage, Hypothesis via **Schemathesis** (API fuzzing) |
+| Security | pytest security suite, **OWASP ZAP**, **Trivy**, **Semgrep**, **CodeQL**, **zizmor**, **hadolint**, bandit, pip-audit, gitleaks, Dependabot ([details](#security-testing)) |
+| Quality | ruff (lint + format), mypy `--strict` |
+| CI/CD | GitHub Actions (CI, Security, CodeQL, Deploy, Keep-alive), branch protection on `main` |
+| Hosting | Render (Docker web service + managed Postgres, Frankfurt) |
+| AI | Claude Code, logged in [`AI_LOG.md`](AI_LOG.md) and reflected on in [§4](#4-ai-reflection) |
 
 ---
 
@@ -277,17 +354,43 @@ The spec defines **no authentication**. The real consequence is that **anyone wh
 | 31 | Browser sign-in sets an `HttpOnly; Secure; SameSite=Strict` `__Host-` cookie and never returns the token. API clients use `/auth/token` | One endpoint returning the token to JS | Page scripts can never read the session token |
 | 32 | CSRF: a foreign `Origin` is refused on every write, and cookie-authenticated writes must show a trusted `Origin`/`Referer` | CSRF tokens | Same protection with no token plumbing. `SameSite=Strict` is a second layer |
 | 33 | Sign-up, resend and forgot-password always answer 202 with the same body. An existing email gets an "already registered" email | 409 on duplicates | No account enumeration. The cost: sign-up can't log you in straight away |
-| 34 | Sign-in requires a verified email | Allow unverified sign-in with limits | Every signed-in user owns their inbox, so a new account can safely be linked to a staff-created walk-in record with the same email |
+| 34 | Sign-in requires a verified email (configurable per deployment since decision 45) | Allow unverified sign-in with limits | Every signed-in user owns their inbox, so a new account can safely be linked to a staff-created walk-in record with the same email |
 | 35 | Lockout keyed by **email** (5 failures, 15 min) on the existing limiter, plus a per-IP limit on `/auth/*` | DB columns on the user | Unknown emails lock identically, so lockout reveals nothing. Trade-off: in-memory, per instance |
 | 36 | Password reset marks the email verified and revokes every session | Reset only | Following the link proves control of the inbox, which defeats "squatting" someone's email with an unverified account (tested) |
 | 37 | Other people's appointments, and staff-only routes, answer **404** to patients | 403 | No oracle for which IDs exist |
-| 38 | Email over stdlib SMTP: Mailpit locally, **Resend's SMTP relay** in production (Resend chosen by Caleb) | Resend SDK/HTTP API | One transport everywhere, no new dependency |
+| 38 | Email over stdlib SMTP: Mailpit locally, an SMTP relay in production (Resend chosen by Caleb first; the demo now uses Gmail, decision 46) | Resend SDK/HTTP API | One transport everywhere, no new dependency, and switching provider is only env vars |
 | 39 | Emails sent after the response (`BackgroundTasks`) | Synchronous; outbox + worker | A slow mail server never slows a request. Shortcut: no retries (outbox is the upgrade path) |
 | 40 | NIST-style password policy: 10–128 characters, a common-password list, must not contain the email | Composition rules | Length beats complexity rules. Next step: a breached-password check |
 | 41 | UI is one static page served by the API: vanilla JS, no build, no CDN, self-hosted font, strict CSP | React/Vite SPA | Smallest thing that does the job (ponytail skill). Same origin means no CORS and cookie-only auth |
 | 42 | Availability response gained `working_hours` | UI infers windows from free slots | The day strip must show lunch and closed periods, which free slots alone can't express |
 | 43 | Dependency cooldown enforced in Dependabot (7 days), not in uv | `exclude-newer = "7 days"` in uv | Forcing it in uv today would roll FastAPI back 18 releases. See [Security testing](#security-testing) |
 | 44 | Keep-alive also triggerable externally (`workflow_dispatch` / `repository_dispatch`). Caleb's choice, alongside the cron | Cron only | GitHub's scheduler is best-effort; an outside scheduler is steadier |
+| 45 | Email confirmation is a setting, `REQUIRE_EMAIL_VERIFICATION`: on locally, **off on the Render demo**. A new account then signs in at once, but an account claiming a staff-created **walk-in record still needs the emailed link**. **Decision: Caleb**, after he spotted the blocker | Always required; remove email entirely | Without a verified domain, Resend only delivers to its own account owner, so no reviewer could ever finish signing up. The walk-in exception keeps decision 34's guarantee: nobody reaches someone else's records by typing their email (tested) |
+| 46 | Demo email via **Gmail SMTP** (app password) instead of Resend. Option chosen by Caleb | Resend with a bought domain; Brevo; no email | Reaches any inbox with no domain, free (~500/day), and it's only env vars (decision 38). Some mail may land in spam, which decision 45 makes harmless |
+| 47 | Swagger has an **Authorize** button (an `HTTPBearer` scheme on protected routes) | Document the header only | Found while preparing for reviewers: without it, `/docs` couldn't call any protected endpoint |
+| 48 | Optional **demo patient login** from `DEMO_PATIENT_PASSWORD`, created by the seed like the staff account | Reviewers sign up themselves | A reviewer can try the API in seconds, and no credential lives in the repo |
+
+---
+
+## Decisions Caleb made
+
+The project owner made these calls. Some were made when the AI offered options, so they are marked that way. Where Caleb gave a reason, it is quoted. Otherwise no reason is invented for him (his own reasoning for Section 4 stays `TODO(Caleb)`).
+
+| Decision | How it was made | Where |
+|---|---|---|
+| Keep-alive pinger for the free tier | Caleb's own idea, in the original brief | Decision 18, [Keep-alive](#keep-alive-free-tier-cold-starts) |
+| Keep the cron **and** add an external trigger | Chosen from options the AI offered. Caleb: an outside service "should always work" | Decision 44 |
+| Defer Render until the app is finished | Caleb's call | [Manual steps](#manual-steps) |
+| Add a booking UI in phase 2 | Caleb's request | [The booking UI](#the-booking-ui) |
+| Auth = email + password with server-side sessions | Chosen from options the AI offered | Decision 29 |
+| Security testing with "as many \[tools\] as we can that are relevant", covering basic and complex issues | Caleb's request. He picked the pytest suite, Schemathesis, ZAP, Trivy and Semgrep, and the AI added CodeQL, zizmor and hadolint | [Security testing](#security-testing) |
+| Email with **Resend** in production and a local SMTP catcher, plus templates for sign-up, sign-in "and any other relevant ones" | Caleb's own idea | Decision 38 |
+| **Email confirmation optional on the demo** | Caleb spotted that Resend without a domain would block every tester: "that confirming thing will not be practical". He chose this from three options | Decision 45 |
+| **Gmail SMTP** for the demo | Chosen together with the one above | Decision 46 |
+| Memory-heavy runs (scanners, full stack) are run by Caleb or CI, never by the AI on the laptop, and no extra servers | Caleb's instruction, after Docker ran out of memory twice | [Running the security tools locally](#running-the-security-tools-locally) |
+| No AI co-author trailer on commits | Caleb's rule; the first commit was rewritten | [AI_LOG](AI_LOG.md) |
+| Use the *frontend-design* and *ponytail* skills | Caleb's request (he supplied the ponytail link) | [The booking UI](#the-booking-ui) |
+| **Next: redesign the UI** from a Google Stitch export (Stitch also picks the theme), matched exactly, with minimal animations | Caleb's plan, in progress | `TODO`: filled in when it lands |
 
 ---
 
@@ -431,7 +534,7 @@ Every response carries `X-Request-ID` (an incoming one is echoed if it is safe),
 | 503 | `NOT_READY` | `/ready` cannot reach the database |
 | 401 | `NOT_AUTHENTICATED` | No session or token, or it has expired or been revoked *(phase 2)* |
 | 401 | `INVALID_CREDENTIALS` | Wrong email or password, identical for unknown emails *(phase 2)* |
-| 403 | `EMAIL_NOT_VERIFIED` | Correct password, but the email isn't confirmed yet *(phase 2)* |
+| 403 | `EMAIL_NOT_VERIFIED` | Correct password, but the email isn't confirmed yet. With `REQUIRE_EMAIL_VERIFICATION=false`, only for accounts claiming a walk-in record *(phase 2)* |
 | 403 | `CSRF_FAILED` | Write from a foreign origin, or a cookie-authenticated write without a trusted `Origin`/`Referer` *(phase 2)* |
 | 404 | `PATIENT_NOT_FOUND` / `APPOINTMENT_NOT_FOUND` | Also returned for **someone else's** records, so they look the same as non-existent ones *(phase 2)* |
 | 422 | `WEAK_PASSWORD` | Fails the password policy *(phase 2)* |
@@ -507,13 +610,17 @@ forgot password ──► reset link (30 min, single use, newest only) ──►
 6. *Your password was changed*
 7. *Appointment booked / moved / cancelled*
 
-All of them are sent over plain SMTP: **Mailpit** catches them locally (inbox at http://localhost:8025), and **Resend**'s SMTP relay sends them in production:
+All of them are sent over plain SMTP. **Mailpit** catches them locally (inbox at http://localhost:8025). The Render demo sends them through **Gmail**, which needs no domain (decision 46):
 
 ```
-SMTP_HOST=smtp.resend.com  SMTP_PORT=465  SMTP_SECURITY=ssl  SMTP_USER=resend
-SMTP_PASSWORD=<RESEND_API_KEY>  MAIL_FROM="The Clinic <bookings@your-verified-domain>"
+SMTP_HOST=smtp.gmail.com  SMTP_PORT=587  SMTP_SECURITY=starttls
+SMTP_USER=<you>@gmail.com  SMTP_PASSWORD=<Google app password>  MAIL_FROM="The Clinic <you@gmail.com>"
 PUBLIC_BASE_URL=https://<your public URL>     # used in email links and the CSRF origin check
+# Resend instead, once a sending domain is verified (without one it only delivers to the account owner):
+# SMTP_HOST=smtp.resend.com SMTP_PORT=465 SMTP_SECURITY=ssl SMTP_USER=resend SMTP_PASSWORD=<API key>
 ```
+
+**Confirmation is a setting** (`REQUIRE_EMAIL_VERIFICATION`, decision 45). It is on locally, so the whole flow above runs against Mailpit. It is off on the demo, so a reviewer whose email lands in spam is never blocked: sign-up answers "your account is ready: sign in now", and the confirmation email is still sent. Even with it off, an account whose email matches a **walk-in record created earlier by staff** must confirm first, so typing someone else's email never reveals their appointments (`test_optional_verification_still_guards_walk_in_records`).
 
 Delivery happens after the response, and a failure is logged (template name only, never the address) without affecting the request. There are no retries yet; the upgrade is an outbox table plus a worker.
 
@@ -634,7 +741,8 @@ Use a **fine-grained personal access token** limited to *this repository only*, 
 - ~~No authentication~~: fixed in phase 2 ([Accounts and email](#accounts-and-email)). What's still missing on accounts: MFA, account deletion/export, a breached-password check, and staff management beyond the seeded account.
 - Lockout counters, like rate limits, are **per process, in memory**: they reset on restart and aren't shared between instances. Per-email lockout can also be used to lock someone out for 15 minutes on purpose (the usual lockout trade-off). Moving to Redis fixes both.
 - Emails have **no retry**. A mail outage means a lost verification or reset email; the user can request it again.
-- The UI's database-backed tests and its browser walkthrough ran only in CI or not at all: the dev laptop ran out of memory for Docker. `TODO(Caleb)`: click through sign-up → book → change → cancel once after `docker compose up`.
+- Gmail SMTP (the demo's provider) allows about 500 messages a day, and mail from a personal address can land in spam. That's fine for a demo; a real clinic should send from its own verified domain.
+- With confirmation off (the demo), anyone can sign up with an email they don't own. They can't reach anyone else's records (decision 45), but they can book under that address.
 - Rate limiting is **per process, in memory**. Multiple instances need Redis or edge limiting. Behind Render, client IPs come from `X-Forwarded-For` (`FORWARDED_ALLOW_IPS="*"`, safe only because Render's proxy is the sole ingress).
 - Free tier: cold starts (mitigated by keep-alive), the free Postgres expires, and there are no backups.
 - Doctors' holidays/time off, variable durations, and notifications are not implemented (growth path §1.9).
@@ -661,9 +769,15 @@ Things that need Caleb's accounts, so they were not faked:
 8. Note the free Postgres expiry date from the Render dashboard (keep-alive trade-off d).
 9. Optional: an UptimeRobot / cron-job.org monitor on `https://<url>/health`.
 10. Branch protection is **already configured** (see §3). Optionally require approvals or enforce it for admins under Settings → Branches → `main`. Consider adding `Schemathesis API fuzzing`, `OWASP ZAP API scan (DAST)` and the `Analyze (...)` CodeQL checks to the required list.
-11. **Email (Resend):** create a Resend account, verify a sending domain (Domains → add DNS records) or use Resend's test sender, and create an API key. On the Render service set:
-    `SMTP_HOST=smtp.resend.com`, `SMTP_PORT=465`, `SMTP_SECURITY=ssl`, `SMTP_USER=resend`, `SMTP_PASSWORD=<API key>`, `MAIL_FROM=The Clinic <bookings@your-domain>`, and `PUBLIC_BASE_URL=https://<your public URL>`. Links in emails and the CSRF check depend on that last one being exact.
-12. **Staff account in production:** set `STAFF_EMAIL` and a long `STAFF_PASSWORD` on Render (the seed creates or updates the account on each deploy). Never reuse the local compose default.
+11. **Email (Gmail):**
+    - Turn on 2-Step Verification for the Google account, then create an app password at https://myaccount.google.com/apppasswords.
+    - On the Render service set `SMTP_USER=<you>@gmail.com`, `SMTP_PASSWORD=<the 16-character app password>`, `MAIL_FROM=The Clinic <you@gmail.com>` and `PUBLIC_BASE_URL=https://<your public URL>`.
+    - `render.yaml` already sets the host, port, `starttls` and `REQUIRE_EMAIL_VERIFICATION=false`.
+    - Links in emails and the CSRF check depend on `PUBLIC_BASE_URL` being exact.
+12. **Staff and demo logins in production:**
+    - Set `STAFF_EMAIL`, a long `STAFF_PASSWORD` and `DEMO_PATIENT_PASSWORD` on Render. The seed creates or updates both accounts on each deploy.
+    - Never reuse the local compose defaults.
+    - Put the demo password in [Try it](#try-it) (it only opens the fake demo patient). Share the staff password privately.
 13. **Keep-alive external trigger:** create the fine-grained token described in [Keep-alive](#keep-alive-free-tier-cold-starts) and add the `curl` call to your scheduler (every 10 minutes is enough).
 14. Run the memory-heavy checks yourself when you have the RAM ([commands](#running-the-security-tools-locally)), or rely on the CI runs on each PR.
 
@@ -707,4 +821,4 @@ A second, smaller one: the AI proposed proving the concurrency test is meaningfu
 **4. Two decisions made without AI**
 
 - **Keep-alive pinger** (decision 18, Decision: Caleb). Why I trusted my own judgment here: `TODO(Caleb)`: in your own words.
-- **Second decision:** `TODO(Caleb)`: pick one that was genuinely yours before the session and explain it in your own words. Candidates that appear in your brief, so the AI did not originate them (only you know whether you decided them unaided): using real Postgres instead of SQLite for tests; enforcing double-booking prevention in the database rather than in application code; non-enumerable UUIDs for patients and appointments; computing slots instead of storing them; Render + GitHub Actions as the platform. From phase 2, these were Caleb's own ideas rather than AI suggestions: using **Resend** for email, and triggering the keep-alive from an **external service**. Keeping the cron as well, and the auth approach (password + sessions), were chosen by Caleb *from options the AI proposed*, so they may not count as "without AI".
+- **Second decision:** `TODO(Caleb)`: pick one that was genuinely yours before the session and explain it in your own words. Candidates that appear in your brief, so the AI did not originate them (only you know whether you decided them unaided): using real Postgres instead of SQLite for tests; enforcing double-booking prevention in the database rather than in application code; non-enumerable UUIDs for patients and appointments; computing slots instead of storing them; Render + GitHub Actions as the platform. From phase 2, these were Caleb's own ideas rather than AI suggestions: using **Resend** for email, triggering the keep-alive from an **external service**, and spotting that required email confirmation would block every reviewer on the demo (the fix was then picked from options, decision 45). The full list is in [Decisions Caleb made](#decisions-caleb-made). Keeping the cron as well, and the auth approach (password + sessions), were chosen by Caleb *from options the AI proposed*, so they may not count as "without AI".

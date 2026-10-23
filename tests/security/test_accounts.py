@@ -1,6 +1,7 @@
 """Sign-up, verification, sign-in, lockout, password reset, sessions (OWASP ASVS V2/V3)."""
 
 import hashlib
+from collections.abc import Iterator
 from datetime import timedelta
 
 import pytest
@@ -153,6 +154,34 @@ def test_signup_links_existing_walk_in_patient(
     signup_and_verify(anon, mailer, NEW)
     login(anon, NEW)
     assert anon.get("/auth/me").json()["patient"]["id"] == walk_in
+
+
+@pytest.fixture
+def open_signup(app: FastAPI, clock: FixedClock, mailer: MemoryMailer) -> Iterator[TestClient]:
+    """Email confirmation optional, as on the public demo."""
+    with open_client(create_app(Settings(require_email_verification=False), clock, mailer)) as c:
+        yield c
+
+
+def test_optional_verification_signs_in_straight_away(
+    open_signup: TestClient, mailer: MemoryMailer
+) -> None:
+    r = register(open_signup, NEW)
+    assert r.status_code == 202
+    assert "sign in now" in r.json()["message"]
+    assert mailer.outbox[-1]["Subject"] == "Confirm your email to finish signing up"
+    assert login(open_signup, NEW).status_code == 200
+
+
+def test_optional_verification_still_guards_walk_in_records(
+    client: TestClient, open_signup: TestClient, mailer: MemoryMailer
+) -> None:
+    client.post("/patients", json={"full_name": "Walk In", "phone": "+254733000000", "email": NEW})
+    register(open_signup, NEW)
+    blocked = login(open_signup, NEW)  # whoever typed this email doesn't get the records yet
+    assert error_code(blocked) == "EMAIL_NOT_VERIFIED"
+    assert open_signup.post("/auth/verify", json={"token": last_token(mailer)}).status_code == 200
+    assert login(open_signup, NEW).status_code == 200
 
 
 # ---- sign-in ---------------------------------------------------------------------

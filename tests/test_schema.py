@@ -4,19 +4,23 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from pydantic import SecretStr
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
+from app.core.security import verify_password
 from app.db.models import (
     UQ_DOCTOR_SLOT,
     UQ_PATIENT_SLOT,
     Appointment,
     Doctor,
     Patient,
+    User,
     WorkingHours,
 )
-from scripts.seed import DEMO_PATIENT_ID, seed
+from scripts.seed import DEMO_PATIENT, DEMO_PATIENT_ID, seed
 
 START = datetime(2030, 1, 7, 6, 0, tzinfo=UTC)  # Monday 09:00 Nairobi
 
@@ -88,3 +92,15 @@ def test_seed_is_idempotent(db: Session) -> None:
     assert db.scalar(select(func.count()).select_from(Doctor)) == 5
     assert db.scalar(select(func.count()).select_from(WorkingHours)) == 41
     assert db.scalar(select(func.count()).select_from(Patient)) == 1
+
+
+def test_seed_gives_the_demo_patient_a_login_when_configured(db: Session) -> None:
+    password = "demo patient for local testing"
+    settings = get_settings().model_copy(update={"demo_patient_password": SecretStr(password)})
+    seed(db, settings)
+    seed(db, settings)  # still idempotent
+    user = db.scalar(select(User).where(User.email == DEMO_PATIENT["email"]))
+    assert user is not None
+    assert user.patient_id == DEMO_PATIENT_ID
+    assert user.email_verified_at is not None
+    assert verify_password(password, user.password_hash)
