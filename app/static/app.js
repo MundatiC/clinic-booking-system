@@ -158,7 +158,6 @@ function setMe(me) {
   });
   const name = me?.patient?.full_name ?? me?.email.split("@")[0] ?? "";
   $("#me-name").textContent = name;
-  $("#me-initials").textContent = name ? initials(name) : "";
 }
 
 async function loadMe() {
