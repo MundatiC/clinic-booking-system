@@ -100,7 +100,8 @@ def test_rate_limit_on_writes(session_factory: object) -> None:
     settings = Settings(rate_limit_enabled=True, rate_limit_writes="2/minute")
     with TestClient(create_app(settings, FixedClock(NOW))) as c:
         codes = [book(c, local(TUE, "09:15")).status_code for _ in range(3)]
-        assert codes == [422, 422, 429]
+        # Limited before auth runs: brute-forcing protected writes is throttled too.
+        assert codes == [401, 401, 429]
         r = book(c, local(TUE, "09:15"))
         assert error_code(r) == "RATE_LIMITED"
         assert int(r.headers["Retry-After"]) >= 1

@@ -1,0 +1,8 @@
+Subject: Your account is ready
+Hello $name,
+
+Your email is confirmed. You can now sign in and book a 30-minute appointment with any of our doctors:
+
+$signin_link
+
+Bookings open up to 90 days ahead and close one hour before each slot.

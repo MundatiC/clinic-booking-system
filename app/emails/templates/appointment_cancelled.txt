@@ -1,0 +1,8 @@
+Subject: Appointment cancelled: $when
+Hello $name,
+
+Your appointment with $doctor on $when is cancelled. The time is free for someone else now.
+
+Reason given: $reason
+
+Book a new time whenever you are ready: $signin_link

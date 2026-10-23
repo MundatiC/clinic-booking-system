@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.errors import ConflictError
-from app.db.models import UQ_DOCTOR_SLOT, UQ_PATIENT_EMAIL, UQ_PATIENT_SLOT
+from app.db.models import UQ_DOCTOR_SLOT, UQ_PATIENT_EMAIL, UQ_PATIENT_SLOT, UQ_USER_EMAIL
 
 _BY_CONSTRAINT = {
     UQ_DOCTOR_SLOT: ("SLOT_TAKEN", "That slot has just been booked. Please pick another."),
@@ -17,6 +17,7 @@ _BY_CONSTRAINT = {
         "This patient already has an appointment at that time.",
     ),
     UQ_PATIENT_EMAIL: ("PATIENT_EXISTS", "A patient with this email already exists."),
+    UQ_USER_EMAIL: ("EMAIL_TAKEN", "An account with this email already exists."),
 }
 
 

@@ -1,0 +1,10 @@
+Subject: New sign-in to your account
+Hello $name,
+
+Your account was just signed in to.
+
+When: $when
+Device: $device
+
+If this was you, there is nothing to do.
+If it was not you, reset your password now; that signs out every device: $reset_link

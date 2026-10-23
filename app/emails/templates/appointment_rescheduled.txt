@@ -1,0 +1,10 @@
+Subject: Appointment moved to $when
+Hello $name,
+
+Your appointment has moved.
+
+Doctor: $doctor ($specialty)
+New time: $when (30 minutes)
+Was: $previous
+
+Manage your appointments: $signin_link

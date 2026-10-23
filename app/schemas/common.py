@@ -23,6 +23,8 @@ class ErrorResponse(BaseModel):
 
 
 _DESCRIPTIONS = {
+    401: "Not signed in, session expired, or wrong credentials (`NOT_AUTHENTICATED`, ...).",
+    403: "Refused (`CSRF_FAILED`, `EMAIL_NOT_VERIFIED`).",
     404: "Unknown or inactive resource (`DOCTOR_NOT_FOUND`, `PATIENT_NOT_FOUND`, ...).",
     409: "Conflicts with current state (`SLOT_TAKEN`, `ALREADY_CANCELLED`, ...).",
     413: "Request body too large (`PAYLOAD_TOO_LARGE`).",

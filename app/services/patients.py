@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.core.clock import Clock
 from app.core.errors import NotFoundError
-from app.db.models import Appointment, Patient
+from app.db.models import Appointment, Patient, User
 from app.repositories import appointments as appointments_repo
 from app.repositories import patients as patients_repo
 
@@ -21,9 +21,11 @@ class PatientService:
         return patient
 
     def upcoming(
-        self, patient_id: uuid.UUID, limit: int, offset: int
+        self, user: User, patient_id: uuid.UUID, limit: int, offset: int
     ) -> tuple[list[Appointment], int]:
-        if patients_repo.get(self.session, patient_id) is None:
+        # Patients may only list their own; anyone else's looks like "not found".
+        allowed = user.is_staff or user.patient_id == patient_id
+        if not allowed or patients_repo.get(self.session, patient_id) is None:
             raise NotFoundError(
                 "PATIENT_NOT_FOUND", "Patient not found.", {"patient_id": str(patient_id)}
             )

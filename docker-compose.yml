@@ -15,17 +15,32 @@ services:
       timeout: 3s
       retries: 30
 
+  mail:
+    # Catches every email in development: inbox at http://localhost:8025
+    image: axllent/mailpit:v1.27
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+
   api:
     build: .
     depends_on:
       db:
         condition: service_healthy
+      mail:
+        condition: service_started
     environment:
       DATABASE_URL: postgresql+psycopg://clinic:clinic@db:5432/clinic
       ENVIRONMENT: local
       CORS_ORIGINS: http://localhost:8000
       RUN_MIGRATIONS_ON_START: "true"
       RUN_SEED_ON_START: "true"
+      PUBLIC_BASE_URL: http://localhost:8000
+      SMTP_HOST: mail
+      SMTP_PORT: "1025"
+      # Local-only staff login for trying the staff view. Change it; never use in production.
+      STAFF_EMAIL: ${STAFF_EMAIL:-staff@example.com}
+      STAFF_PASSWORD: ${STAFF_PASSWORD:-reception desk for local testing}
     ports:
       - "8000:8000"
     read_only: true

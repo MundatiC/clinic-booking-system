@@ -3,10 +3,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 
-from app.api.deps import BookingServiceDep, SessionDep, SettingsDep
+from app.api.deps import BookingServiceDep, SessionDep, SettingsDep, StaffUser
 from app.repositories import doctors as doctors_repo
+from app.schemas.appointments import AppointmentOut
 from app.schemas.common import error_responses
-from app.schemas.doctors import AvailabilityOut, DoctorOut, SlotOut
+from app.schemas.doctors import AvailabilityOut, DoctorOut, ScheduleItem, SlotOut
 
 router = APIRouter(prefix="/doctors", tags=["doctors"])
 
@@ -44,3 +45,24 @@ def availability(
         slot_minutes=settings.slot_minutes,
         slots=[SlotOut(start=s.astimezone(tz), end=e.astimezone(tz)) for s, e in free],
     )
+
+
+@router.get(
+    "/{doctor_id}/appointments",
+    summary="The doctor's booked appointments on a date (staff)",
+    responses=error_responses(401, 404, 422),
+)
+def schedule(
+    doctor_id: int,
+    date: Annotated[Date, Query(description="Clinic-local date", examples=["2026-11-02"])],
+    _: StaffUser,
+    service: BookingServiceDep,
+    settings: SettingsDep,
+) -> list[ScheduleItem]:
+    return [
+        ScheduleItem(
+            **AppointmentOut.build(a, settings.tz).model_dump(),
+            patient_name=a.patient.full_name,
+        )
+        for a in service.doctor_day(doctor_id, date)
+    ]

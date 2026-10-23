@@ -2,9 +2,10 @@
 
 from functools import lru_cache
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from app.core.ratelimit import parse_rate
@@ -34,8 +35,31 @@ class Settings(BaseSettings):
     # Comma-separated list in the env var, e.g. "https://a.example,https://b.example".
     cors_origins: Annotated[list[str], NoDecode] = []
     rate_limit_writes: str = "30/minute"
+    rate_limit_auth: str = "10/minute"
     rate_limit_enabled: bool = True
     max_body_bytes: int = 16 * 1024
+
+    # Public origin of this app: used for links in emails and as the trusted
+    # Origin for cookie-authenticated writes (CSRF check).
+    public_base_url: str = "http://localhost:8000"
+    clinic_name: str = "The Clinic"
+
+    session_idle_minutes: int = Field(default=30, gt=0)
+    session_max_hours: int = Field(default=12, gt=0)
+    login_max_failures: int = Field(default=5, gt=0)
+    login_lockout_minutes: int = Field(default=15, gt=0)
+    # Optional: seed creates/updates one staff account from these (never committed).
+    staff_email: str | None = None
+    staff_password: SecretStr | None = None
+
+    # SMTP. Dev: Mailpit (docker compose). Production: Resend's SMTP relay
+    # (smtp.resend.com, port 465, security "ssl", user "resend", password = API key).
+    smtp_host: str = "localhost"
+    smtp_port: int = 1025
+    smtp_security: Literal["none", "starttls", "ssl"] = "none"
+    smtp_user: str | None = None
+    smtp_password: SecretStr | None = None
+    mail_from: str = "The Clinic <no-reply@clinic.localhost>"
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -51,11 +75,23 @@ class Settings(BaseSettings):
             raise ValueError("CORS wildcard is not allowed; list explicit origins")
         return value
 
-    @field_validator("rate_limit_writes")
+    @field_validator("rate_limit_writes", "rate_limit_auth")
     @classmethod
     def _valid_rate(cls, value: str) -> str:
         parse_rate(value)
         return value
+
+    @field_validator("public_base_url")
+    @classmethod
+    def _origin_only(cls, value: str) -> str:
+        parts = urlsplit(value)
+        if parts.scheme not in ("http", "https") or not parts.netloc or parts.path not in ("", "/"):
+            raise ValueError("PUBLIC_BASE_URL must be an origin like https://clinic.example")
+        return f"{parts.scheme}://{parts.netloc}"
+
+    @property
+    def trusted_origins(self) -> frozenset[str]:
+        return frozenset([self.public_base_url, *self.cors_origins])
 
     @field_validator("database_url")
     @classmethod

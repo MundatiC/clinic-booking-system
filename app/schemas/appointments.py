@@ -12,7 +12,11 @@ _START_DOC = "Slot start, ISO-8601 **with offset** (naive datetimes are rejected
 
 class AppointmentCreate(RequestModel):
     doctor_id: int = Field(gt=0, strict=True, examples=[1])
-    patient_id: uuid.UUID = Field(examples=["00000000-0000-4000-8000-000000000001"])
+    patient_id: uuid.UUID | None = Field(
+        default=None,
+        description="Staff only. Patients book for themselves and may omit it.",
+        examples=["00000000-0000-4000-8000-000000000001"],
+    )
     start_at: AwareDatetime = Field(description=_START_DOC, examples=["2026-11-02T09:00:00+03:00"])
 
 

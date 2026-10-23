@@ -2,6 +2,8 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
+from app.schemas.appointments import AppointmentOut
+
 
 class DoctorOut(BaseModel):
     id: int = Field(examples=[1])
@@ -20,3 +22,7 @@ class AvailabilityOut(BaseModel):
     timezone: str = Field(examples=["Africa/Nairobi"])
     slot_minutes: int = Field(examples=[30])
     slots: list[SlotOut]
+
+
+class ScheduleItem(AppointmentOut):
+    patient_name: str

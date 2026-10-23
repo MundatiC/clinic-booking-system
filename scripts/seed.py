@@ -4,7 +4,9 @@ Safe to run on every deploy:
 - doctors are upserted by their fixed id;
 - each seeded doctor's working hours are replaced with the definition below
   (appointments are never touched);
-- the demo patient is upserted by email.
+- the demo patient is upserted by email;
+- if STAFF_EMAIL and STAFF_PASSWORD are set, that staff account is created or its
+  password updated (credentials never live in the repo).
 
 Usage: python -m scripts.seed
 """
@@ -17,7 +19,9 @@ from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.db.models import Doctor, Patient, WorkingHours
+from app.core.config import get_settings
+from app.core.security import check_password_policy, hash_password
+from app.db.models import Doctor, Patient, User, UserRole, WorkingHours
 from app.db.session import get_sessionmaker
 
 log = logging.getLogger("seed")
@@ -93,6 +97,25 @@ def seed(session: Session) -> None:
     session.execute(
         insert(Patient).values(**DEMO_PATIENT).on_conflict_do_nothing(index_elements=["email"])
     )
+
+    settings = get_settings()
+    if settings.staff_email and settings.staff_password:
+        email = settings.staff_email.strip().lower()
+        password = settings.staff_password.get_secret_value()
+        check_password_policy(password, email)
+        session.execute(
+            insert(User)
+            .values(
+                email=email,
+                password_hash=hash_password(password),
+                role=UserRole.STAFF,
+                email_verified_at=func.now(),
+            )
+            .on_conflict_do_update(
+                index_elements=[User.email],
+                set_={"password_hash": hash_password(password), "role": UserRole.STAFF},
+            )
+        )
 
     # Explicit ids were inserted, so move the sequence past them for future inserts.
     session.execute(

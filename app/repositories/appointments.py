@@ -36,6 +36,22 @@ def booked_starts(
     return set(session.scalars(stmt))
 
 
+def booked_between(
+    session: Session, doctor_id: int, from_utc: datetime, to_utc: datetime
+) -> list[Appointment]:
+    stmt = (
+        select(Appointment)
+        .where(
+            Appointment.doctor_id == doctor_id,
+            Appointment.status == AppointmentStatus.BOOKED,
+            Appointment.start_at >= from_utc,
+            Appointment.start_at < to_utc,
+        )
+        .order_by(Appointment.start_at)
+    )
+    return list(session.scalars(stmt))
+
+
 def add(session: Session, appointment: Appointment, event: AppointmentEvent) -> Appointment:
     session.add(appointment)
     flush_or_translate(session)

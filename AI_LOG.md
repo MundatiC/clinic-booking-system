@@ -38,3 +38,33 @@ Caleb gave Claude Code one long, detailed brief: the assessment's verbatim requi
 12. **EXPLAIN on ~100k synthetic rows.** The AI's first load script violated the `cancelled_at` CHECK constraint (the constraint did its job); the script was fixed. Plans: availability is an Index Only Scan on `uq_appointments_doctor_slot` (0.27 ms); patient page and count use `uq_appointments_patient_slot`. The plan showed an Incremental Sort caused by a redundant `ORDER BY …, id` tie-breaker, so the tie-breaker was removed.
 13. **Encoding scare.** A Python in-place edit read README.md with Windows' default cp1252 and failed. Checked every tracked file for mojibake, and none was damaged (earlier edits round-tripped bytes and only inserted ASCII). Further README edits used the editor tool.
 14. **First Deploy run on main** (after merging PR #4): all four CI jobs re-ran green inside the Deploy workflow. The deploy job skipped with the intended warning because `RENDER_DEPLOY_HOOK_URL` / `APP_URL` are not set yet.
+
+## Session 1, phase 2: auth, email, security testing, UI (2026-10-23)
+
+### Prompt (Caleb)
+"Build the UI, add authentication, also use a tool for tests that test for security stuff, make sure the basic security and even complex ones are all handled, use the front end skill and even ponytail skill." Caleb then chose password + server-side sessions, asked for Schemathesis + ZAP + Trivy + Semgrep + a pytest security suite ("as many as we can that are relevant"), kept the keep-alive cron and will add an external trigger, deferred Render, and added: email verification + password reset with Resend in production and a local SMTP catcher, plus templates for sign-up, sign-in "and any other relevant ones".
+
+### Skills
+- `frontend-design` was not installed. Its SKILL.md was found in the synced official plugin marketplace on disk and followed from there.
+- `ponytail` did not exist locally. Caleb linked `DietrichGebert/ponytail/skills/ponytail/SKILL.md`. The AI downloaded only that markdown file into a scratch folder, read it fully (no code, no instructions to run anything), and installed it to `~/.claude/skills/ponytail/`. It did **not** install the repo's JS hooks/plugins.
+
+### Design refinements the AI made while implementing (not in the approved plan; recorded as decisions)
+- Sign-up always answers 202 "check your email". An existing email gets an "already registered" email. This means sign-up does not log you in.
+- Sign-in requires a verified email. This made it safe to link a new account to an existing walk-in patient record with the same email, and removed per-endpoint "verified?" checks.
+- `/auth/login` sets only the HttpOnly cookie. A separate `/auth/token` returns a bearer token for API clients, so the browser token never reaches JavaScript.
+- Lockout reuses the existing `RateLimiter`, keyed by email, so unknown emails lock identically (no enumeration through lockout).
+- Password reset marks the email verified. This defeats "squatting" someone's email with an unverified account (tested).
+- Resend is used via its SMTP relay, so stdlib `smtplib` is the only transport (no SDK).
+
+### Bugs and corrections in phase 2
+15. **Timing leak in sign-up (AI caught on self-review).** The first `register` hashed the password only for new emails, so existing emails answered faster (an enumeration oracle). Fixed by hashing before the existence check.
+16. **`render(name, ..., **values)` clash (caught by tests).** Templates take a `name` value, which collided with the function's first parameter → TypeError → 500 on every email. Made the parameter positional-only.
+17. **`email-validator` rejects reserved TLDs** (`.test`, `.localhost`) for the test/staff accounts. Switched to `example.com`. Tests caught it.
+18. **Raw control bytes written into source (AI tooling mistake).** Writing a regex `\x00-\x1f` through a shell heredoc + Python string produced literal NUL/control bytes in `app/schemas/patients.py` (grep reported "binary file"). Fixed by writing the bytes explicitly, then scanned every tracked file for control bytes (none).
+19. **FastAPI 0.161 nests included routers** (`_IncludedRouter`), so iterating `app.routes` for `APIRoute` found nothing and the "every route needs auth" test silently had zero routes. It failed on its `len >= 8` guard. Switched to enumerating operations from the OpenAPI schema.
+20. **Bandit flagged three new `assert user is not None`.** Replaced with an `EmailToken.user` relationship and an explicit `user is None or not ok` check.
+
+### Verification
+- 188 tests pass (184 + SMTP mailer tests). New security suite: 63 tests in `tests/security/`.
+- **Mutation checks:** removing the ownership check, the cookie CSRF check, or the enumeration-safe sign-up each made at least one security test fail. Removing the cookie CSRF check broke only the "no Origin" test, because the global origin check still blocked foreign origins (defence in depth). Files were restored afterwards.
+- Compose stack with Mailpit: sign-up → verification email caught in Mailpit → verify via token → welcome email → sign-in (cookie set) → "new sign-in" email; staff bearer token works. API logs: 0 lines containing an email address, 0 containing `token=`.
