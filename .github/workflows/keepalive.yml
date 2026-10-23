@@ -1,0 +1,31 @@
+name: Keep-alive
+
+# Render free web services sleep after ~15 min without inbound traffic. Ping
+# /health every 10 minutes from outside so reviewers rarely hit a cold start.
+# Best-effort: GitHub may delay or skip scheduled runs. See README decisions.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          sparse-checkout: scripts/keepalive.py
+          sparse-checkout-cone-mode: false
+      - name: Ping
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          KEEPALIVE_READY_EVERY: "3"
+        run: python3 scripts/keepalive.py

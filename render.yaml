@@ -1,0 +1,46 @@
+# Render Blueprint: web service (Docker) + managed Postgres.
+# Deploys are triggered by .github/workflows/deploy.yml (deploy hook) after CI
+# passes on main, so Render's own auto-deploy is off.
+services:
+  - type: web
+    name: clinic-booking-api
+    runtime: docker
+    plan: free
+    region: frankfurt  # closest Render region to Nairobi
+    branch: main
+    autoDeploy: false
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: clinic-db
+          property: connectionString
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      # Free instances have no pre-deploy command, so the container's start
+      # script runs migrations and the idempotent seed on boot.
+      - key: RUN_MIGRATIONS_ON_START
+        value: "true"
+      - key: RUN_SEED_ON_START
+        value: "true"
+      # Render's proxy is the only ingress; trust its X-Forwarded-For so rate
+      # limiting sees real client IPs.
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"
+      - key: CORS_ORIGINS
+        sync: false  # set in the dashboard to the public URL (and any frontend origin)
+      - key: DB_POOL_SIZE
+        value: "3"
+      - key: DB_MAX_OVERFLOW
+        value: "2"
+
+databases:
+  - name: clinic-db
+    plan: free
+    region: frankfurt
+    databaseName: clinic
+    user: clinic
+    ipAllowList: []  # no external access; only services inside Render can connect
