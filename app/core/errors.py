@@ -32,6 +32,16 @@ class AppError(Exception):
         self.headers = headers
 
 
+class UnauthorizedError(AppError):
+    """Not signed in, or the credentials are wrong."""
+
+    status_code = 401
+
+
+class ForbiddenError(AppError):
+    status_code = 403
+
+
 class NotFoundError(AppError):
     status_code = 404
 
@@ -101,6 +111,9 @@ async def _validation_error(_: Request, exc: Exception) -> JSONResponse:
 async def _http_error(_: Request, exc: Exception) -> JSONResponse:
     if not isinstance(exc, StarletteHTTPException):
         raise exc
+    if exc.status_code == 400:
+        # FastAPI's "error parsing the body" (e.g. invalid UTF-8): treat like malformed JSON.
+        return _json(422, "VALIDATION_ERROR", "Request body is not valid JSON.")
     code = _HTTP_CODES.get(exc.status_code, "HTTP_ERROR")
     message = exc.detail if isinstance(exc.detail, str) else "HTTP error."
     return _json(exc.status_code, code, message, headers=getattr(exc, "headers", None))

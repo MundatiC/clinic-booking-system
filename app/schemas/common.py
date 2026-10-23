@@ -4,6 +4,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+# doctors.id is a Postgres `integer`; larger ids would overflow in the query (found by
+# Schemathesis as a 500), so they are rejected as invalid input instead.
+INT32_MAX = 2_147_483_647
+
 
 class RequestModel(BaseModel):
     """Base for request bodies: unknown fields are rejected, strings trimmed."""
@@ -23,6 +27,8 @@ class ErrorResponse(BaseModel):
 
 
 _DESCRIPTIONS = {
+    401: "Not signed in, session expired, or wrong credentials (`NOT_AUTHENTICATED`, ...).",
+    403: "Refused (`CSRF_FAILED`, `EMAIL_NOT_VERIFIED`).",
     404: "Unknown or inactive resource (`DOCTOR_NOT_FOUND`, `PATIENT_NOT_FOUND`, ...).",
     409: "Conflicts with current state (`SLOT_TAKEN`, `ALREADY_CANCELLED`, ...).",
     413: "Request body too large (`PAYLOAD_TOO_LARGE`).",

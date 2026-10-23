@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    LargeBinary,
     SmallInteger,
     String,
     Text,
@@ -122,6 +123,7 @@ class Appointment(Base):
     )
 
     doctor: Mapped[Doctor] = relationship()
+    patient: Mapped[Patient] = relationship()
     events: Mapped[list["AppointmentEvent"]] = relationship(
         back_populates="appointment",
         order_by="AppointmentEvent.id",
@@ -145,3 +147,78 @@ class AppointmentEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     appointment: Mapped[Appointment] = relationship(back_populates="events")
+
+
+UQ_USER_EMAIL = "uq_users_email"
+
+
+class UserRole(enum.StrEnum):
+    PATIENT = "patient"
+    STAFF = "staff"
+
+
+class User(Base):
+    """A login. Patients are linked to exactly one Patient record; staff to none."""
+
+    __tablename__ = "users"
+    __table_args__ = (
+        Index(UQ_USER_EMAIL, "email", unique=True),
+        CheckConstraint("role IN ('patient', 'staff')", name="role_values"),
+        CheckConstraint("(role = 'patient') = (patient_id IS NOT NULL)", name="patient_link"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email: Mapped[str] = mapped_column(String(254))  # stored lower-cased
+    password_hash: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(16))
+    patient_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("patients.id", ondelete="RESTRICT"), unique=True
+    )
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    patient: Mapped[Patient | None] = relationship()
+
+    @property
+    def is_staff(self) -> bool:
+        return self.role == UserRole.STAFF
+
+
+class AuthSession(Base):
+    """Server-side session. Only the SHA-256 of the token is stored."""
+
+    __tablename__ = "auth_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    token_hash: Mapped[bytes] = mapped_column(LargeBinary(32), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped[User] = relationship()
+
+
+class EmailTokenPurpose(enum.StrEnum):
+    VERIFY = "verify"
+    RESET = "reset"
+
+
+class EmailToken(Base):
+    """Single-use token sent by email (verification, password reset). Stored hashed."""
+
+    __tablename__ = "email_tokens"
+    __table_args__ = (CheckConstraint("purpose IN ('verify', 'reset')", name="purpose_values"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    purpose: Mapped[str] = mapped_column(String(16))
+    token_hash: Mapped[bytes] = mapped_column(LargeBinary(32), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped[User] = relationship()

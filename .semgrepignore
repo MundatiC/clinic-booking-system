@@ -1,0 +1,6 @@
+# Third-party code and caches
+.venv/
+.mypy_cache/
+.ruff_cache/
+# Tests deliberately contain hostile payloads (SQLi/XSS strings, fake secrets).
+tests/

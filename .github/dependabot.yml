@@ -4,6 +4,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7  # don't propose releases younger than a week
     open-pull-requests-limit: 5
     groups:
       python-minor:
@@ -12,7 +14,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7  # don't propose releases younger than a week
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7  # don't propose releases younger than a week

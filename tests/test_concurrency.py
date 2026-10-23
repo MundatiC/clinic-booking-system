@@ -16,11 +16,21 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.clock import FixedClock
 from app.core.config import get_settings
 from app.core.errors import AppError
-from app.db.models import Appointment, Patient
+from app.core.mailer import MemoryMailer
+from app.db.models import Appointment, Patient, User, UserRole
 from app.services.booking import BookingService
+from app.services.notifications import Notifier
 from tests.utils import NOW, TUE, at
 
 SLOT = at(TUE, "09:00")
+STAFF = User(role=UserRole.STAFF)  # transient: services only read role/patient_id
+
+
+def _service(session: Session) -> BookingService:
+    settings = get_settings()
+    return BookingService(
+        session, settings, FixedClock(NOW), Notifier(MemoryMailer(), settings, None)
+    )
 
 
 def _patients(factory: sessionmaker[Session], n: int) -> list[uuid.UUID]:
@@ -42,7 +52,7 @@ def _race(
 
     def run(i: int) -> None:
         with factory() as session:
-            svc = BookingService(session, get_settings(), FixedClock(NOW))
+            svc = _service(session)
             barrier.wait()
             try:
                 jobs[i](svc)
@@ -70,7 +80,7 @@ def test_concurrent_bookings_exactly_one_wins(session_factory: sessionmaker[Sess
     patients = _patients(session_factory, 10)
     results = _race(
         session_factory,
-        [lambda svc, p=p: svc.book(1, p, SLOT) for p in patients],  # type: ignore[misc]
+        [lambda svc, p=p: svc.book(STAFF, 1, p, SLOT) for p in patients],  # type: ignore[misc]
     )
     assert Counter(results) == {"ok": 1, "SLOT_TAKEN": 9}
     assert len(_booked_at(session_factory, SLOT)) == 1
@@ -80,15 +90,15 @@ def test_concurrent_reschedule_vs_booking_one_wins(session_factory: sessionmaker
     mover, booker = _patients(session_factory, 2)
     target = at(TUE, "10:00")
     with session_factory() as s:
-        appt = BookingService(s, get_settings(), FixedClock(NOW)).book(1, mover, SLOT)
+        appt = _service(s).book(STAFF, 1, mover, SLOT)
         appt_id = appt.id
 
     for _ in range(5):  # repeat to vary the interleaving
         results = _race(
             session_factory,
             [
-                lambda svc: svc.reschedule(appt_id, target),
-                lambda svc: svc.book(1, booker, target),
+                lambda svc: svc.reschedule(STAFF, appt_id, target),
+                lambda svc: svc.book(STAFF, 1, booker, target),
             ],
         )
         assert sorted(results) == ["SLOT_TAKEN", "ok"]
@@ -115,10 +125,13 @@ def test_concurrent_reschedule_vs_booking_one_wins(session_factory: sessionmaker
 def test_concurrent_cancels_one_succeeds(session_factory: sessionmaker[Session]) -> None:
     (p,) = _patients(session_factory, 1)
     with session_factory() as s:
-        appt_id = BookingService(s, get_settings(), FixedClock(NOW)).book(1, p, SLOT).id
+        appt_id = _service(s).book(STAFF, 1, p, SLOT).id
     results = _race(
         session_factory,
-        [lambda svc: svc.cancel(appt_id, "reason one"), lambda svc: svc.cancel(appt_id, "two")],
+        [
+            lambda svc: svc.cancel(STAFF, appt_id, "reason one"),
+            lambda svc: svc.cancel(STAFF, appt_id, "two"),
+        ],
     )
     assert sorted(results) == ["ALREADY_CANCELLED", "ok"]
     with session_factory() as s:

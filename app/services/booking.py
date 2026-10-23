@@ -19,17 +19,22 @@ from app.db.models import (
     AppointmentEventType,
     AppointmentStatus,
     Doctor,
+    User,
 )
 from app.repositories import appointments as appointments_repo
 from app.repositories import doctors as doctors_repo
 from app.repositories import patients as patients_repo
 from app.services import slots
-from app.services.slots import Slot
+from app.services.notifications import Notifier
+from app.services.slots import Slot, Window
 
 
 class BookingService:
-    def __init__(self, session: Session, settings: Settings, clock: Clock) -> None:
+    def __init__(
+        self, session: Session, settings: Settings, clock: Clock, notifier: Notifier
+    ) -> None:
         self.session = session
+        self.notify = notifier
         self.settings = settings
         self.clock = clock
         self.tz = settings.tz
@@ -37,40 +42,51 @@ class BookingService:
 
     # ---- queries -------------------------------------------------------------------
 
-    def availability(self, doctor_id: int, day: date) -> list[Slot]:
-        """Free slots for the doctor on a clinic-local date: 2 queries, set difference."""
+    def availability(self, doctor_id: int, day: date) -> tuple[list[Window], list[Slot]]:
+        """The day's working windows and its free slots: 2 queries, set difference."""
         self._active_doctor(doctor_id)
-        now = self.clock.now()
-        today = now.astimezone(self.tz).date()
-        if day < today or day > today + timedelta(days=self.settings.max_advance_days):
-            return []
-
         windows = [
             (w.start_time, w.end_time)
             for w in doctors_repo.windows_for(self.session, doctor_id, day.weekday())
         ]
-        if not windows:
-            return []
+        now = self.clock.now()
+        today = now.astimezone(self.tz).date()
+        horizon = today + timedelta(days=self.settings.max_advance_days)
+        if not windows or day < today or day > horizon:
+            return windows, []
         candidates = slots.generate_slots(day, windows, self.tz, self.settings.slot_minutes)
         day_start, day_end = slots.local_day_bounds_utc(day, self.tz)
         taken = appointments_repo.booked_starts(self.session, doctor_id, day_start, day_end)
         earliest = now + timedelta(minutes=self.settings.min_lead_time_minutes)
-        return [(s, e) for s, e in candidates if s not in taken and s >= earliest]
+        return windows, [(s, e) for s, e in candidates if s not in taken and s >= earliest]
 
-    def get(self, appointment_id: uuid.UUID) -> Appointment:
-        appt = appointments_repo.get(self.session, appointment_id)
-        if appt is None:
-            raise _appointment_not_found(appointment_id)
-        return appt
+    def get(self, user: User, appointment_id: uuid.UUID) -> Appointment:
+        return _visible(appointments_repo.get(self.session, appointment_id), user, appointment_id)
+
+    def doctor_day(self, doctor_id: int, day: date) -> list[Appointment]:
+        """The doctor's booked appointments on a clinic-local date (staff schedule)."""
+        self._active_doctor(doctor_id)
+        start, end = slots.local_day_bounds_utc(day, self.tz)
+        return appointments_repo.booked_between(self.session, doctor_id, start, end)
 
     # ---- commands ------------------------------------------------------------------
 
-    def book(self, doctor_id: int, patient_id: uuid.UUID, start_at: datetime) -> Appointment:
-        doctor = self._active_doctor(doctor_id)
-        if patients_repo.get(self.session, patient_id) is None:
-            raise NotFoundError(
-                "PATIENT_NOT_FOUND", "Patient not found.", {"patient_id": str(patient_id)}
+    def book(
+        self, user: User, doctor_id: int, patient_id: uuid.UUID | None, start_at: datetime
+    ) -> Appointment:
+        if not user.is_staff:
+            # Patients book for themselves; naming anyone else looks like "not found".
+            if patient_id not in (None, user.patient_id):
+                raise _patient_not_found(patient_id)
+            patient_id = user.patient_id
+        if patient_id is None:
+            raise BusinessRuleError(
+                "PATIENT_REQUIRED", "Staff bookings must say which patient they are for."
             )
+        doctor = self._active_doctor(doctor_id)
+        patient = patients_repo.get(self.session, patient_id)
+        if patient is None:
+            raise _patient_not_found(patient_id)
         self._validate_slot(doctor, start_at)
 
         appt = Appointment(
@@ -85,10 +101,11 @@ class BookingService:
         # violation is translated to the same friendly 409 SLOT_TAKEN.
         appointments_repo.add(self.session, appt, event)
         self.session.commit()
+        self.notify.appointment("booked", appt, patient, doctor)
         return appt
 
-    def cancel(self, appointment_id: uuid.UUID, reason: str) -> Appointment:
-        appt = self._locked(appointment_id)
+    def cancel(self, user: User, appointment_id: uuid.UUID, reason: str) -> Appointment:
+        appt = self._locked(user, appointment_id)
         if appt.status == AppointmentStatus.CANCELLED:
             raise ConflictError(
                 "ALREADY_CANCELLED",
@@ -103,10 +120,11 @@ class BookingService:
         event = AppointmentEvent(type=AppointmentEventType.CANCELLED, from_start_at=appt.start_at)
         appointments_repo.save(self.session, appt, event)
         self.session.commit()
+        self._notify("cancelled", appt)
         return appt
 
-    def reschedule(self, appointment_id: uuid.UUID, start_at: datetime) -> Appointment:
-        appt = self._locked(appointment_id)
+    def reschedule(self, user: User, appointment_id: uuid.UUID, start_at: datetime) -> Appointment:
+        appt = self._locked(user, appointment_id)
         if appt.status == AppointmentStatus.CANCELLED:
             raise ConflictError(
                 "APPOINTMENT_CANCELLED", "A cancelled appointment cannot be rescheduled."
@@ -132,6 +150,7 @@ class BookingService:
         # transaction rolls back, and the original booking is left as it was.
         appointments_repo.save(self.session, appt, event)
         self.session.commit()
+        self._notify("rescheduled", appt, previous=old_start)
         return appt
 
     # ---- rules ---------------------------------------------------------------------
@@ -193,11 +212,12 @@ class BookingService:
             raise NotFoundError("DOCTOR_NOT_FOUND", "Doctor not found.", {"doctor_id": doctor_id})
         return doctor
 
-    def _locked(self, appointment_id: uuid.UUID) -> Appointment:
+    def _locked(self, user: User, appointment_id: uuid.UUID) -> Appointment:
         appt = appointments_repo.get_for_update(self.session, appointment_id)
-        if appt is None:
-            raise _appointment_not_found(appointment_id)
-        return appt
+        return _visible(appt, user, appointment_id)
+
+    def _notify(self, kind: str, appt: Appointment, previous: datetime | None = None) -> None:
+        self.notify.appointment(kind, appt, appt.patient, appt.doctor, previous)
 
     def _not_started(self, appt: Appointment) -> None:
         if appt.start_at <= self.clock.now():
@@ -206,6 +226,17 @@ class BookingService:
                 "This appointment has already started or taken place.",
                 {"start_at": _iso(appt.start_at, self)},
             )
+
+
+def _visible(appt: Appointment | None, user: User, appointment_id: uuid.UUID) -> Appointment:
+    """Staff see every appointment; patients only their own. Others' look like 404."""
+    if appt is None or not (user.is_staff or appt.patient_id == user.patient_id):
+        raise _appointment_not_found(appointment_id)
+    return appt
+
+
+def _patient_not_found(patient_id: uuid.UUID) -> NotFoundError:
+    return NotFoundError("PATIENT_NOT_FOUND", "Patient not found.", {"patient_id": str(patient_id)})
 
 
 def _appointment_not_found(appointment_id: uuid.UUID) -> NotFoundError:

@@ -23,10 +23,17 @@ def _normalise_phone(value: str) -> str:
 
 
 Phone = Annotated[str, StringConstraints(max_length=32), AfterValidator(_normalise_phone)]
+# Printable text only: names end up in emails, so no control characters (e.g. CR/LF).
+Name = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True, min_length=2, max_length=120, pattern=r"^[^\x00-\x1f\x7f]+$"
+    ),
+]
 
 
 class PatientCreate(RequestModel):
-    full_name: str = Field(min_length=2, max_length=120, examples=["Wanjiku Njoroge"])
+    full_name: Name = Field(examples=["Wanjiku Njoroge"])
     phone: Phone = Field(examples=["+254712345678"])
     email: Annotated[EmailStr, Field(max_length=254, examples=["wanjiku@example.com"])]
 

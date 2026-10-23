@@ -1,0 +1,9 @@
+Subject: Appointment booked for $when
+Hello $name,
+
+Your appointment is booked.
+
+Doctor: $doctor ($specialty)
+When: $when (30 minutes)
+
+Need to change it? Sign in to reschedule or cancel, at least an hour before: $signin_link
