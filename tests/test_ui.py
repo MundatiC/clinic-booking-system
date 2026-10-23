@@ -43,6 +43,13 @@ def test_font_licence_ships_with_the_font() -> None:
     )
 
 
+def test_forms_never_submit_via_get() -> None:
+    # Found by ZAP (10024): without JS a GET form would put the email and password in
+    # the URL (history, logs, Referer). POST to / is a harmless 405 instead.
+    forms = re.findall(r"<form\b([^>]*)>", HTML, re.IGNORECASE)
+    assert forms and all('method="post"' in attrs.lower() for attrs in forms)
+
+
 def test_verify_link_needs_a_click() -> None:
     # Opening an emailed link must not act by itself (link scanners, links from others).
     assert 'id="verify-confirm"' in HTML
@@ -61,6 +68,13 @@ def test_index_is_served_with_a_strict_csp(anon: TestClient) -> None:
     assert "script-src 'self'" in csp and "frame-ancestors 'none'" in csp
     assert "unsafe-inline" not in csp and "unsafe-eval" not in csp
     assert r.headers["X-Frame-Options"] == "DENY"
+    assert r.headers["Cross-Origin-Embedder-Policy"] == "require-corp"
+
+
+def test_no_js_form_post_to_index_leaks_nothing(anon: TestClient) -> None:
+    r = anon.post("/", data={"email": "a@example.com", "password": "secret value 123"})
+    assert r.status_code == 405
+    assert "secret value" not in r.text
 
 
 def test_assets_are_served(anon: TestClient) -> None:

@@ -72,6 +72,8 @@ class RequestContextMiddleware:
                 content_type = headers.get("content-type", "")
                 if content_type.startswith("text/html") and not path.startswith(_DOC_PATHS):
                     headers.setdefault("Content-Security-Policy", PAGE_CSP)
+                    # Same-origin assets only, so full cross-origin isolation is free (ZAP 90004).
+                    headers.setdefault("Cross-Origin-Embedder-Policy", "require-corp")
                 if content_type.startswith("application/json") and not (
                     path.startswith(_DOC_PATHS)
                 ):

@@ -73,7 +73,7 @@
     <!-- Staff day schedule -->
     <section data-view="schedule" hidden>
       <h1>Day schedule</h1>
-      <form id="schedule-form" class="inline">
+      <form id="schedule-form" class="inline" method="post">
         <div class="field">
           <label for="schedule-doctor">Doctor</label>
           <select id="schedule-doctor" required></select>
@@ -91,7 +91,7 @@
     <!-- Sign in -->
     <section data-view="signin" class="narrow" hidden>
       <h1>Sign in</h1>
-      <form id="signin-form" novalidate>
+      <form id="signin-form" method="post" novalidate>
         <div class="field">
           <label for="signin-email">Email</label>
           <input id="signin-email" name="email" type="email" autocomplete="username" required maxlength="254">
@@ -111,7 +111,7 @@
     <!-- Sign up -->
     <section data-view="signup" class="narrow" hidden>
       <h1>Create an account</h1>
-      <form id="signup-form" novalidate>
+      <form id="signup-form" method="post" novalidate>
         <div class="field">
           <label for="signup-name">Full name</label>
           <input id="signup-name" name="full_name" autocomplete="name" required minlength="2" maxlength="120">
@@ -153,7 +153,7 @@
 
     <section data-view="forgot" class="narrow" hidden>
       <h1>Reset your password</h1>
-      <form id="forgot-form" novalidate>
+      <form id="forgot-form" method="post" novalidate>
         <div class="field">
           <label for="forgot-email">Email</label>
           <input id="forgot-email" name="email" type="email" autocomplete="email" required maxlength="254">
@@ -165,7 +165,7 @@
 
     <section data-view="reset" class="narrow" hidden>
       <h1>Choose a new password</h1>
-      <form id="reset-form" novalidate>
+      <form id="reset-form" method="post" novalidate>
         <div class="field">
           <label for="reset-password">New password</label>
           <input id="reset-password" name="password" type="password" autocomplete="new-password" required minlength="10" maxlength="128" aria-describedby="reset-hint">
@@ -190,7 +190,7 @@
         <button type="button" class="ghost" data-act="reschedule">Change time</button>
         <button type="button" class="ghost danger" data-act="cancel">Cancel</button>
       </div>
-      <form class="cancel-form" hidden>
+      <form class="cancel-form" method="post" hidden>
         <label>Reason for cancelling
           <textarea name="reason" required minlength="3" maxlength="500" rows="2"></textarea>
         </label>

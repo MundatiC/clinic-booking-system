@@ -15,7 +15,6 @@
 10024	FAIL	(Information Disclosure - Sensitive Information in URL - Passive/release)
 10025	FAIL	(Information Disclosure - Sensitive Information in HTTP Referrer Header - Passive/release)
 10026	FAIL	(HTTP Parameter Override - Passive/beta)
-10027	FAIL	(Information Disclosure - Suspicious Comments - Passive/release)
 10028	FAIL	(Off-site Redirect - Passive/release)
 10029	FAIL	(Cookie Poisoning - Passive/release)
 10030	FAIL	(User Controllable Charset - Passive/release)
@@ -36,7 +35,6 @@
 10045	FAIL	(Source Code Disclosure - /WEB-INF Folder - Active/release)
 10047	FAIL	(HTTPS Content Available via HTTP - Active/release)
 10048	FAIL	(Remote Code Execution - Shell Shock - Active/release)
-10049	FAIL	(Content Cacheability - Passive/beta)
 10050	FAIL	(Retrieved from Cache - Passive/release)
 10052	FAIL	(X-ChromeLogger-Data (XCOLD) Header Information Leak - Passive/release)
 10054	FAIL	(Cookie without SameSite Attribute - Passive/release)
@@ -57,7 +55,6 @@
 10108	FAIL	(Reverse Tabnabbing - Passive/release)
 10109	FAIL	(Modern Web Application - Passive/release)
 10110	FAIL	(Dangerous JS Functions - Passive/beta)
-10111	FAIL	(Authentication Request Identified - Passive/beta)
 10112	FAIL	(Session Management Response Identified - Passive/beta)
 10113	FAIL	(Verification Request Identified - Passive/beta)
 10115	FAIL	(Script Served From Malicious Domain (polyfill) - Passive/release)
@@ -120,6 +117,13 @@
 90035	FAIL	(Server Side Template Injection - Active/release)
 90036	FAIL	(Server Side Template Injection (Blind) - Active/release)
 90037	FAIL	(Remote OS Command Injection (Time Based) - Active/release)
+# Informational rules, reviewed and ignored (they describe the page; they are not flaws):
+#   10111 notes that a sign-in form exists.
+#   10027 matched comments in app.js that explain the security design (no secrets, no TODOs).
+#   10049 reports caching behaviour (assets and 404s), not a vulnerability.
+10111	IGNORE	(Authentication Request Identified)
+10027	IGNORE	(Information Disclosure - Suspicious Comments)
+10049	IGNORE	(Non-Storable Content)
 # Scoping, not suppression: 100001 ("unexpected content type") assumes API responses.
 # The booking UI (/ and /assets/) is HTML/CSS/JS by design and is checked by the
 # separate zap-baseline pass in scripts/zap_scan.sh with every other rule as FAIL.
