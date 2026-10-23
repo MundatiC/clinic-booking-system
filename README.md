@@ -80,7 +80,7 @@ More options (no Docker, quality gates) are in [Running locally](#running-locall
 |---|---|
 | Backend | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 (sync, psycopg 3), Alembic, argon2-cffi |
 | Database | PostgreSQL 16 (partial unique indexes, row locks), also used in every test |
-| Frontend | Vanilla HTML/CSS/JS served by the API (no framework, no build, no CDN), self-hosted Atkinson Hyperlegible Next font |
+| Frontend | Vanilla HTML/CSS/JS served by the API (no framework, no build, no CDN), self-hosted Newsreader + Plus Jakarta Sans fonts, design from a Google Stitch export |
 | Email | stdlib `smtplib` + `string.Template`. Mailpit locally, Gmail SMTP on the demo (Resend once a domain is verified) |
 | Packaging / runtime | uv (locked deps), Docker (multi-stage, non-root, read-only root FS), docker compose |
 | Tests | pytest, coverage, Hypothesis via **Schemathesis** (API fuzzing) |
@@ -369,6 +369,7 @@ The spec defines **no authentication**. The real consequence is that **anyone wh
 | 46 | Demo email via **Gmail SMTP** (app password) instead of Resend. Option chosen by Caleb | Resend with a bought domain; Brevo; no email | Reaches any inbox with no domain, free (~500/day), and it's only env vars (decision 38). Some mail may land in spam, which decision 45 makes harmless |
 | 47 | Swagger has an **Authorize** button (an `HTTPBearer` scheme on protected routes) | Document the header only | Found while preparing for reviewers: without it, `/docs` couldn't call any protected endpoint |
 | 48 | Optional **demo patient login** from `DEMO_PATIENT_PASSWORD`, created by the seed like the staff account | Reviewers sign up themselves | A reviewer can try the API in seconds, and no credential lives in the repo |
+| 49 | UI redesign **from a Google Stitch export**, rebuilt in plain CSS. **Kept:** the layout, palette, type, components and states. **Dropped:** details Stitch made up that the API doesn't have (fees, insurers, room numbers, phone and WhatsApp lines, parking, credentials, a privacy claim, a consent checkbox for terms that don't exist, a mobile tab bar to pages that don't exist), and the doctor photos (initials instead). **Changed:** rescheduling reuses the full booking page (any day, any time) rather than Stitch's same-day panel. **Added:** the patient's phone in the staff schedule, so the front desk can call. Plan: Caleb's; what to keep and drop: chosen by Caleb from options | Ship Stitch's HTML as is; keep the made-up details as demo copy | Stitch's HTML needs a Tailwind CDN script and Google-hosted fonts and images, which the CSP (decision 41: own-origin only) forbids. Made-up fees or phone numbers could mislead a reviewer into thinking they are real |
 
 ---
 
@@ -390,7 +391,9 @@ The project owner made these calls. Some were made when the AI offered options, 
 | Memory-heavy runs (scanners, full stack) are run by Caleb or CI, never by the AI on the laptop, and no extra servers | Caleb's instruction, after Docker ran out of memory twice | [Running the security tools locally](#running-the-security-tools-locally) |
 | No AI co-author trailer on commits | Caleb's rule; the first commit was rewritten | [AI_LOG](AI_LOG.md) |
 | Use the *frontend-design* and *ponytail* skills | Caleb's request (he supplied the ponytail link) | [The booking UI](#the-booking-ui) |
-| **Next: redesign the UI** from a Google Stitch export (Stitch also picks the theme), matched exactly, with minimal animations | Caleb's plan, in progress | `TODO`: filled in when it lands |
+| **Redesign the UI** from a Google Stitch export (Stitch also picked the theme), with minimal animations | Caleb's plan | Decision 49 |
+| Keep the Stitch export and prompts **out of the repo**, as a guide only, and build "stuff we need" from it | Caleb's own | Decision 49 |
+| Drop Stitch's made-up details; initials instead of photos | Chosen by Caleb from options | Decision 49 |
 
 ---
 
@@ -626,7 +629,7 @@ Delivery happens after the response, and a failure is logged (template name only
 
 ### The booking UI
 
-A single static page at `/` (`app/static/`). It uses vanilla JS with no framework, no build step and no CDN. Its design follows the *frontend-design* skill, and the code follows the *ponytail* skill (smallest complete change).
+A single static page at `/` (`app/static/`). It uses vanilla JS with no framework, no build step and no CDN. The look comes from a **Google Stitch** design (decision 49), rebuilt by hand in plain CSS. The Stitch export itself (Tailwind from a CDN, Google-hosted fonts and images) is kept out of the repo: it was a guide, not code to ship. The code follows the *ponytail* skill (smallest complete change).
 
 - **Flows:**
   - sign up / sign in, verify, forgot / reset
@@ -635,9 +638,11 @@ A single static page at `/` (`app/static/`). It uses vanilla JS with no framewor
   - *My appointments*: change time on the same strip, or cancel with a reason
   - staff *Day schedule* with patient names and cancel
 - **Look:**
-  - one family, Atkinson Hyperlegible Next, designed for low-vision legibility (OFL licence, self-hosted)
-  - jacaranda violet for actions (Nairobi's October–November bloom)
-  - quiet everywhere except the strip
+  - "Nairobi outpatient" palette chosen by Stitch: acacia green for actions, highland terracotta for accents and warnings, a warm limestone canvas
+  - Newsreader for headings, Plus Jakarta Sans for names, times and forms (both OFL, self-hosted)
+  - doctors shown with initials, not photos; icons are an inline SVG sprite
+  - desktop: choices on the left, times and the booking summary on a sticky right column. Phones: doctors swipe sideways and the times become a timeline
+  - minimal motion (150–250 ms fades and rises, a check that pops on selection), switched off by `prefers-reduced-motion`
 - **Safety:** all text goes in via `textContent`/`createElement` (tests forbid HTML-parsing sinks). The CSP allows only own-origin files, with no inline script, style or handlers.
 - **Accessibility:** labelled controls, visible focus, a skip link, `aria-live` status messages, `prefers-reduced-motion` respected, and large tap targets on mobile.
 

@@ -3,6 +3,7 @@
 import re
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tests.utils import TUE, WED
@@ -36,11 +37,13 @@ def test_assets_are_local() -> None:
     assert "url(http" not in (STATIC / "app.css").read_text(encoding="utf-8")
 
 
-def test_font_licence_ships_with_the_font() -> None:
-    assert (STATIC / "atkinson-next-latin.woff2").read_bytes()[:4] == b"wOF2"
-    assert "SIL Open Font License" in (STATIC / "OFL-atkinson-hyperlegible-next.txt").read_text(
-        encoding="utf-8"
-    )
+@pytest.mark.parametrize(
+    ("font", "licence"),
+    [("newsreader-latin", "OFL-newsreader"), ("jakarta-latin", "OFL-plus-jakarta-sans")],
+)
+def test_font_licence_ships_with_the_font(font: str, licence: str) -> None:
+    assert (STATIC / f"{font}.woff2").read_bytes()[:4] == b"wOF2"
+    assert "SIL Open Font License" in (STATIC / f"{licence}.txt").read_text(encoding="utf-8")
 
 
 def test_forms_never_submit_via_get() -> None:
@@ -48,6 +51,12 @@ def test_forms_never_submit_via_get() -> None:
     # the URL (history, logs, Referer). POST to / is a harmless 405 instead.
     forms = re.findall(r"<form\b([^>]*)>", HTML, re.IGNORECASE)
     assert forms and all('method="post"' in attrs.lower() for attrs in forms)
+
+
+def test_every_link_has_an_href() -> None:
+    # Found by ZAP (10109): a bare <a> in a template; links are built whole in JS instead.
+    links = re.findall(r"<a\s([^>]*)>", HTML, re.IGNORECASE)
+    assert links and all("href=" in attrs.lower() for attrs in links)
 
 
 def test_verify_link_needs_a_click() -> None:
@@ -81,7 +90,7 @@ def test_assets_are_served(anon: TestClient) -> None:
     js = anon.get("/assets/app.js")
     assert js.status_code == 200 and "javascript" in js.headers["content-type"]
     assert anon.get("/assets/app.css").status_code == 200
-    assert anon.get("/assets/atkinson-next-latin.woff2").status_code == 200
+    assert anon.get("/assets/jakarta-latin.woff2").status_code == 200
 
 
 def test_no_path_traversal_out_of_assets(anon: TestClient) -> None:

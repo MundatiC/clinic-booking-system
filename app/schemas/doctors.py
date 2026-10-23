@@ -30,3 +30,4 @@ class AvailabilityOut(BaseModel):
 
 class ScheduleItem(AppointmentOut):
     patient_name: str
+    patient_phone: str = Field(examples=["+254712345678"])
