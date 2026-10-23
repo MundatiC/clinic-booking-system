@@ -57,8 +57,8 @@ class Settings(BaseSettings):
     # Optional: seed gives the demo patient a verified login with this password.
     demo_patient_password: SecretStr | None = None
 
-    # SMTP. Dev: Mailpit (docker compose). Production: Resend's SMTP relay
-    # (smtp.resend.com, port 465, security "ssl", user "resend", password = API key).
+    # SMTP. Dev: Mailpit (docker compose). Production: Gmail (smtp.gmail.com, port 587,
+    # security "starttls", user = the Gmail address, password = a Google app password).
     smtp_host: str = "localhost"
     smtp_port: int = 1025
     smtp_security: Literal["none", "starttls", "ssl"] = "none"

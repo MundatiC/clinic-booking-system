@@ -1,5 +1,5 @@
 """Outgoing email over SMTP (stdlib). One transport for every environment:
-Mailpit locally, Resend's SMTP relay in production. Injected like the Clock.
+Mailpit locally, Gmail SMTP in production (render.yaml). Injected like the Clock.
 """
 
 import logging

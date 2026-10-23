@@ -26,10 +26,12 @@ services:
         value: "true"
       - key: RUN_SEED_ON_START
         value: "true"
-      # Render's proxy is the only ingress; trust its X-Forwarded-For so rate
-      # limiting sees real client IPs.
+      # Trust X-Forwarded-For only from Render's private proxy hop. With "*" uvicorn
+      # takes the *first* entry, which the client can write, so anyone could fake an IP
+      # and dodge the per-IP rate limits. With private ranges it takes the rightmost
+      # untrusted entry: the real client.
       - key: FORWARDED_ALLOW_IPS
-        value: "*"
+        value: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
       - key: CORS_ORIGINS
         sync: false  # set in the dashboard to the public URL (and any frontend origin)
       # Public origin: links in emails and the trusted Origin for cookie writes (CSRF).

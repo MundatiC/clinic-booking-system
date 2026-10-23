@@ -477,7 +477,8 @@ async function showMine() {
   list.replaceChildren(el("li", { class: "muted", text: "Loading…" }));
   try {
     if (!state.doctors.length) state.doctors = await api("GET", "/doctors");
-    const page = await api("GET", `/patients/${state.me.patient.id}/appointments?limit=50`);
+    const page = await api("GET", `/patients/${state.me.patient.id}/appointments?limit=100`);
+    // shortcut: one page of 100 (the API's max), add paging if patients ever hold more.
     list.replaceChildren(...page.items.map(visitItem));
     countMine();
   } catch (err) {

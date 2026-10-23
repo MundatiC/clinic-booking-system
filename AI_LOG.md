@@ -127,3 +127,10 @@ Caleb gave Claude Code one long, detailed brief: the assessment's verbatim requi
     - **CI's ZAP baseline failed on rule 10109** ("Modern Web Application"): the staff-row template had an `<a>` with no `href` (set later by JS). Fixed in the markup rather than ignored: the link is now built whole in JS, and a test checks every link in the page has an `href`.
     - **The heredoc-escaping mistake happened a fourth time** (entries 25 and 31): the new test's regex `\b` reached the file as a backspace byte, and because the shell commands weren't chained, the broken file was committed and pushed before lint stopped anything. A follow-up commit fixed it with the editor tool. Rule kept from now on: regexes and backslashes only through the editor, and commit only after lint passes in the same chained command.
 38. **Credit rule from Caleb:** everything that came from the *ponytail* skill counts as his discovery, since he chose and supplied it ("basically everything else gotten from ponytail skill counts as Caleb's discoveries"). README "Decisions Caleb made" now says so, and later ponytail-driven calls are logged that way.
+39. **Repo audit (ponytail audit skill, run by Caleb), findings counted as his.** Six findings; he chose to fix five:
+    - **Rate-limit bypass:** `FORWARDED_ALLOW_IPS="*"` makes uvicorn 0.54 take the *first* `X-Forwarded-For` entry, which the client writes, so a forged header could dodge the per-IP limits. Render now trusts only private proxy ranges; a test runs uvicorn's own middleware with the value from `render.yaml`. The README's earlier claim that `"*"` was safe was wrong. Whether Render appends to the header still needs one check after the first deploy.
+    - The "change or cancel up to an hour before" text (page and booking email) contradicted the rule in code (until the visit starts).
+    - Setup comments still described Resend after the switch to Gmail.
+    - Emails still used the old purple palette.
+    - *My appointments* asked for only 50 visits (now the API's maximum, 100).
+    - Not fixed, by Caleb's choice: every demo sign-in emails `demo.patient@example.com`, which can't receive mail.
