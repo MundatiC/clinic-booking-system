@@ -129,3 +129,8 @@
 # separate zap-baseline pass in scripts/zap_scan.sh with every other rule as FAIL.
 100001	OUTOFSCOPE	^https?://[^/]+/?(\?.*)?$
 100001	OUTOFSCOPE	^https?://[^/]+/assets/.*
+# 10202 (no anti-CSRF token in a form), scoped to the UI page only: its forms are
+# never submitted to the server (JS sends JSON via fetch; a no-JS submit gets 405).
+# CSRF is stopped by the Origin/Referer check on every write, SameSite=Strict
+# cookies and JSON-only bodies (tests/security/test_web.py). Any other form fails.
+10202	OUTOFSCOPE	^https?://[^/]+/?(\?.*)?$
