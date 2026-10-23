@@ -4,7 +4,18 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.clock import FixedClock
-from tests.utils import MON, PATIENT, TUE, WED, at, book, error_code, local, new_patient
+from tests.utils import (
+    MON,
+    PATIENT,
+    PATIENT_EMAIL,
+    TUE,
+    WED,
+    at,
+    book,
+    error_code,
+    local,
+    new_patient,
+)
 
 
 def _register(client: TestClient, **overrides: str) -> object:
@@ -23,10 +34,19 @@ def test_register_normalises_email_and_phone(client: TestClient) -> None:
 
 
 def test_duplicate_email_case_insensitive_409(client: TestClient) -> None:
-    assert _register(client, email="dup@example.com").status_code == 201  # type: ignore[attr-defined]
+    first = _register(client, email="dup@example.com")
+    assert first.status_code == 201  # type: ignore[attr-defined]
     r = _register(client, email="DUP@example.com")
     assert r.status_code == 409  # type: ignore[attr-defined]
     assert error_code(r) == "PATIENT_EXISTS"
+    # Staff get the existing id back, so they can book for that patient.
+    assert r.json()["error"]["details"]["patient_id"] == first.json()["id"]  # type: ignore[attr-defined]
+
+
+def test_existing_online_patient_id_is_returned_to_staff(client: TestClient) -> None:
+    r = _register(client, email=PATIENT_EMAIL.upper())
+    assert error_code(r) == "PATIENT_EXISTS"
+    assert r.json()["error"]["details"]["patient_id"] == PATIENT  # type: ignore[attr-defined]
 
 
 @pytest.mark.parametrize(

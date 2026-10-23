@@ -48,10 +48,6 @@ class Doctor(Base):
     specialty: Mapped[str] = mapped_column(String(120))
     is_active: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
 
-    working_hours: Mapped[list["WorkingHours"]] = relationship(
-        back_populates="doctor", cascade="all, delete-orphan", order_by="WorkingHours.start_time"
-    )
-
 
 class WorkingHours(Base):
     __tablename__ = "working_hours"
@@ -66,8 +62,6 @@ class WorkingHours(Base):
     weekday: Mapped[int] = mapped_column(SmallInteger)  # 0 = Monday ... 6 = Sunday
     start_time: Mapped[time] = mapped_column(Time)  # clinic-local wall clock
     end_time: Mapped[time] = mapped_column(Time)
-
-    doctor: Mapped[Doctor] = relationship(back_populates="working_hours")
 
 
 class Patient(Base):
@@ -124,12 +118,6 @@ class Appointment(Base):
 
     doctor: Mapped[Doctor] = relationship()
     patient: Mapped[Patient] = relationship()
-    events: Mapped[list["AppointmentEvent"]] = relationship(
-        back_populates="appointment",
-        order_by="AppointmentEvent.id",
-        cascade="all, delete-orphan",
-        passive_deletes=True,  # the FK is ON DELETE CASCADE; let the database do it
-    )
 
 
 class AppointmentEvent(Base):
@@ -145,8 +133,6 @@ class AppointmentEvent(Base):
     from_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     to_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    appointment: Mapped[Appointment] = relationship(back_populates="events")
 
 
 UQ_USER_EMAIL = "uq_users_email"
