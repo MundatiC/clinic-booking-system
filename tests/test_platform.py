@@ -166,3 +166,21 @@ def test_settings_validation() -> None:
     assert s.database_url == "postgresql+psycopg://u:p@h:5432/d"
     assert s.cors_origins == ["https://a.io", "https://b.io"]
     assert get_settings().environment == "test"
+
+
+def test_undecodable_body_is_a_validation_error(client: TestClient) -> None:
+    # Found by Schemathesis: invalid UTF-8 used to give an undocumented 400.
+    r = client.post(
+        "/appointments", content=b"\xff\xfe\x1e", headers={"Content-Type": "application/json"}
+    )
+    assert r.status_code == 422
+    assert error_code(r) == "VALIDATION_ERROR"
+
+
+def test_out_of_range_doctor_ids_are_validation_errors(client: TestClient) -> None:
+    # Found by Schemathesis: ids beyond Postgres' integer range used to give a 500.
+    huge = 2**40
+    r = client.get(f"/doctors/{huge}/availability", params={"date": "2030-01-08"})
+    assert r.status_code == 422
+    r = book(client, local(TUE, "09:00"), doctor_id=huge)
+    assert r.status_code == 422

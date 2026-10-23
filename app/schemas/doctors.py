@@ -21,6 +21,10 @@ class AvailabilityOut(BaseModel):
     date: date
     timezone: str = Field(examples=["Africa/Nairobi"])
     slot_minutes: int = Field(examples=[30])
+    working_hours: list[str] = Field(
+        description="The doctor's working windows that day, clinic time; empty on a day off.",
+        examples=[["08:00-12:00", "13:00-17:00"]],
+    )
     slots: list[SlotOut]
 
 

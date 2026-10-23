@@ -4,6 +4,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+# doctors.id is a Postgres `integer`; larger ids would overflow in the query (found by
+# Schemathesis as a 500), so they are rejected as invalid input instead.
+INT32_MAX = 2_147_483_647
+
 
 class RequestModel(BaseModel):
     """Base for request bodies: unknown fields are rejected, strings trimmed."""

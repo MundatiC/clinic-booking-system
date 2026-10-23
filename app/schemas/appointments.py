@@ -5,13 +5,13 @@ from zoneinfo import ZoneInfo
 from pydantic import AwareDatetime, BaseModel, Field
 
 from app.db.models import Appointment
-from app.schemas.common import RequestModel
+from app.schemas.common import INT32_MAX, RequestModel
 
 _START_DOC = "Slot start, ISO-8601 **with offset** (naive datetimes are rejected)."
 
 
 class AppointmentCreate(RequestModel):
-    doctor_id: int = Field(gt=0, strict=True, examples=[1])
+    doctor_id: int = Field(gt=0, le=INT32_MAX, strict=True, examples=[1])
     patient_id: uuid.UUID | None = Field(
         default=None,
         description="Staff only. Patients book for themselves and may omit it.",

@@ -83,7 +83,7 @@ def test_window_not_ending_on_grid(client: TestClient, db: Session) -> None:
 
 
 def test_invalid_date_422(client: TestClient) -> None:
-    for bad in ("2030-13-01", "08-01-2030", "tomorrow", ""):
+    for bad in ("2030-13-01", "08-01-2030", "tomorrow", "", "0", "1893456000", "2030-1-8"):
         r = client.get("/doctors/1/availability", params={"date": bad})
         assert r.status_code == 422, bad
         assert error_code(r) == "VALIDATION_ERROR"

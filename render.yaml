@@ -32,6 +32,27 @@ services:
         value: "*"
       - key: CORS_ORIGINS
         sync: false  # set in the dashboard to the public URL (and any frontend origin)
+      # Public origin: links in emails and the trusted Origin for cookie writes (CSRF).
+      - key: PUBLIC_BASE_URL
+        sync: false
+      # Email via Resend's SMTP relay; the API key goes in SMTP_PASSWORD.
+      - key: SMTP_HOST
+        value: smtp.resend.com
+      - key: SMTP_PORT
+        value: "465"
+      - key: SMTP_SECURITY
+        value: ssl
+      - key: SMTP_USER
+        value: resend
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      # Staff login created/updated by the seed on each deploy.
+      - key: STAFF_EMAIL
+        sync: false
+      - key: STAFF_PASSWORD
+        sync: false
       - key: DB_POOL_SIZE
         value: "3"
       - key: DB_MAX_OVERFLOW

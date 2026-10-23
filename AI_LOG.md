@@ -68,3 +68,28 @@ Caleb gave Claude Code one long, detailed brief: the assessment's verbatim requi
 - 188 tests pass (184 + SMTP mailer tests). New security suite: 63 tests in `tests/security/`.
 - **Mutation checks:** removing the ownership check, the cookie CSRF check, or the enumeration-safe sign-up each made at least one security test fail. Removing the cookie CSRF check broke only the "no Origin" test, because the global origin check still blocked foreign origins (defence in depth). Files were restored afterwards.
 - Compose stack with Mailpit: sign-up → verification email caught in Mailpit → verify via token → welcome email → sign-in (cookie set) → "new sign-in" email; staff bearer token works. API logs: 0 lines containing an email address, 0 containing `token=`.
+
+### Phase 2 continued: scanners, UI, and a laptop out of memory
+21. **Schemathesis found three real bugs**, all fixed with regression tests:
+    - a 500 when `doctor_id` exceeds Postgres `integer` (now bounded to 2³¹−1 → 422);
+    - an undocumented 400 for non-UTF-8 bodies (now the same 422 as malformed JSON);
+    - `?date=0` accepted because Pydantic reads numbers as Unix timestamps (now ISO dates only).
+22. **ZAP's own logout revoked its token.** The first authenticated scan called `POST /auth/logout`, after which 1,333 of 3,188 requests were 401. This was spotted by counting status codes in the API logs, not from ZAP's summary, which looked clean. `/auth/logout` is now excluded via a hook. The first full CI run reported 120/120 rules passed. ZAP also flagged a missing `Cross-Origin-Resource-Policy` header, now added.
+23. **zizmor:** 6× `artipacked`, fixed with `persist-credentials: false`. **hadolint:** non-numeric USER and shell-form HEALTHCHECK, both fixed; base images were also pinned by digest. **Trivy:** clean.
+24. **Semgrep supply-chain finding the AI declined to apply as written.** `exclude-newer = "7 days"` made uv backtrack FastAPI 0.161 → 0.143. The AI's first attempt at it also corrupted `pyproject.toml` (a regex rewrote the project `name` line), so it was reverted from backups. Decision: enforce the cooldown in Dependabot (7 days) and exclude that one rule with a written reason.
+25. **The same shell-escaping mistake twice.** Backslash escapes sent through a heredoc reached files as literal text or bytes (`\n` in a Dockerfile `RUN`, NUL bytes in a regex). After the second time, the AI switched to the editor tool for anything containing backslashes.
+26. **Docker Desktop ran out of memory** (Postgres + API + Mailpit + ZAP + Semgrep images on the laptop) and its engine hung twice. Caleb asked to stop local heavy runs and to be given the commands instead. Heavy verification now runs in GitHub Actions.
+27. **CodeQL JavaScript failed on PR #7** because the JS lived only in the uncommitted UI ("could not process any code written in JavaScript"). Caleb spotted it in a GitHub email. JS analysis moved to the UI PR, together with the code it scans.
+28. **UI guard test caught its author.** `test_script_never_parses_html_from_strings` failed on the AI's own comment containing the word "innerHTML". The comment was reworded and the test kept strict.
+29. **UI design pass (frontend-design skill).**
+    - The first idea for date picking, a row of identical rounded "next 7 days" chips, matched the skill's "SaaS-card kit" tell and was replaced with a native date input and previous/next buttons.
+    - The day strip needs working windows, so the availability response gained `working_hours`.
+    - Self-review before running caught two JS flaws: messages set just before navigation were wiped by the navigation handler, and `aria-current` was handled twice.
+30. **CI on the UI PR (#8) found three more issues.** The database-backed tests all passed in CI.
+    - **CodeQL `js/user-controlled-bypass`:** the verify page auto-POSTed the emailed token on load. The token isn't exploitable as such, but auto-acting on a link lets link scanners, or a link from someone else, act for the user. Now it needs a "Confirm my email" click (tested).
+    - **CodeQL `py/bad-tag-filter`:** the AI's "no inline script" test matched `<script` case-sensitively and would miss `<SCRIPT>`. Made case-insensitive.
+    - **ZAP 100001** (unexpected content type): the API scan crawled the UI's HTML/CSS/JS. The API scan now excludes `/` and `/assets/`, which the baseline scan covers.
+31. **The AI repeated the heredoc-escaping mistake a third time** (a Python patch script with regexes), right after logging it. This time the script's own assertions stopped it before it wrote anything. The edits were redone with the editor tool.
+32. **The ZAP logout hook never worked, and an AI-added CI check proved it.** After adding a step that counts 401s on non-auth paths from the API logs after the scan, CI showed **2,350 of 3,215** requests were 401, even with the hook. Likely cause: ZAP calls every operation while *importing* the spec, before the hook's exclusions apply. The fix was to scan a copy of the spec without `/auth/logout`. The next CI run had **0 of 3,175** non-auth 401s. The earlier README claim ("logout excluded via a hook") had been wrong and was corrected.
+33. **ZAP baseline on the UI page found a real issue.** Without JS (spiders, or a user whose script fails to load), the forms submitted via GET, putting email and password in the URL. Every form is now `method="post"` (tested). COEP was added. Three informational rules are ignored with written reasons.
+34. A scoping regex required `/` after the host, so it missed `http://api:8000`; found by the next CI run and fixed.
