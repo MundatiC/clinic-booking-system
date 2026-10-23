@@ -500,9 +500,9 @@ function rowItem(appt) {
   const node = $("#row-template").content.firstElementChild.cloneNode(true);
   $(".time", node).textContent = `${timeOf(appt.start_at)} – ${timeOf(appt.end_at)}`;
   $(".who", node).textContent = appt.patient_name;
-  const phone = $(".phone", node);
-  phone.href = `tel:${appt.patient_phone}`;
-  $("span", phone).textContent = appt.patient_phone;
+  // Built here, not in the template: a link always has its href (ZAP 10109).
+  $(".phone", node).replaceWith(el("a", { class: "phone", href: `tel:${appt.patient_phone}` },
+    icon("phone"), el("span", { text: appt.patient_phone })));
   wireCancel(node, appt, () => {
     countSchedule();
     flash(`${appt.patient_name}'s ${timeOf(appt.start_at)} appointment is cancelled.`, "ok", "Appointment cancelled");

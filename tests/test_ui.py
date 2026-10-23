@@ -53,6 +53,12 @@ def test_forms_never_submit_via_get() -> None:
     assert forms and all('method="post"' in attrs.lower() for attrs in forms)
 
 
+def test_every_link_has_an_href() -> None:
+    # Found by ZAP (10109): a bare <a> in a template; links are built whole in JS instead.
+    links = re.findall(r"<a([^>]*)>", HTML, re.IGNORECASE)
+    assert links and all("href=" in attrs.lower() for attrs in links)
+
+
 def test_verify_link_needs_a_click() -> None:
     # Opening an emailed link must not act by itself (link scanners, links from others).
     assert 'id="verify-confirm"' in HTML

@@ -124,3 +124,4 @@ Caleb gave Claude Code one long, detailed brief: the assessment's verbatim requi
       - Small change made at the same time: the staff schedule now loads today on open.
     - The exported `logo.svg` was a 64 px PNG inside an SVG wrapper (not recolourable); the AI redrew it as a vector without the stray orange dot, coloured per page (green for patients, terracotta for staff, deepest green on account pages), and used it as the favicon.
     - The container's read-only filesystem (a hardening setting) meant every fix needed a rebuild, which Caleb ran; the AI started no other server.
+    - **CI's ZAP baseline failed on rule 10109** ("Modern Web Application"): the staff-row template had an `<a>` with no `href` (set later by JS). Fixed in the markup rather than ignored: the link is now built whole in JS, and a test checks every link in the page has an `href`.
