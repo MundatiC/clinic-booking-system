@@ -7,6 +7,8 @@ from zoneinfo import ZoneInfo
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from app.core.ratelimit import parse_rate
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -43,6 +45,12 @@ class Settings(BaseSettings):
     def _no_wildcard(cls, value: list[str]) -> list[str]:
         if "*" in value:
             raise ValueError("CORS wildcard is not allowed; list explicit origins")
+        return value
+
+    @field_validator("rate_limit_writes")
+    @classmethod
+    def _valid_rate(cls, value: str) -> str:
+        parse_rate(value)
         return value
 
     @field_validator("database_url")
