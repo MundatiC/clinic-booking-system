@@ -120,3 +120,8 @@
 90035	FAIL	(Server Side Template Injection - Active/release)
 90036	FAIL	(Server Side Template Injection (Blind) - Active/release)
 90037	FAIL	(Remote OS Command Injection (Time Based) - Active/release)
+# Scoping, not suppression: 100001 ("unexpected content type") assumes API responses.
+# The booking UI (/ and /assets/) is HTML/CSS/JS by design and is checked by the
+# separate zap-baseline pass in scripts/zap_scan.sh with every other rule as FAIL.
+100001	OUTOFSCOPE	^https?://[^/]+/(\?.*)?$
+100001	OUTOFSCOPE	^https?://[^/]+/assets/.*

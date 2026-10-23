@@ -68,6 +68,28 @@ jobs:
           curl -fsS --retry 30 --retry-delay 2 --retry-all-errors http://localhost:8000/ready
       - name: Authenticated ZAP API scan (fails on any alert)
         run: bash scripts/zap_scan.sh
+      # A clean report only means something if the scan stayed signed in: once, a
+      # logout in the scan turned 1,333 of 3,188 requests into 401s. Outside /auth/*,
+      # 401s mean the bearer token stopped working.
+      - name: Check the scan stayed authenticated
+        if: always()
+        run: |
+          docker compose -p zapscan logs --no-color --no-log-prefix api > api.log
+          python3 - <<'PY'
+          import collections, json, sys
+          seen = collections.Counter()
+          for line in open("api.log", encoding="utf-8"):
+              try:
+                  entry = json.loads(line)
+              except ValueError:
+                  continue
+              if entry.get("logger") == "app.access" and not entry["path"].startswith("/auth/"):
+                  seen[entry["status"]] += 1
+          total = sum(seen.values())
+          print("non-auth requests by status:", dict(sorted(seen.items())), "total", total)
+          if total == 0 or seen[401] > 0.05 * total:
+              sys.exit("ZAP was not authenticated for most of the scan")
+          PY
       - name: Upload ZAP report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
