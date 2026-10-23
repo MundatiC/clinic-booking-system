@@ -70,7 +70,9 @@ def upcoming_for_patient(
     stmt = (
         select(Appointment)
         .where(*where)
-        .order_by(Appointment.start_at, Appointment.id)
+        # start_at is unique per patient among booked rows (uq_appointments_patient_slot),
+        # so it is a total order; the index then supplies it with no sort step.
+        .order_by(Appointment.start_at)
         .limit(limit)
         .offset(offset)
     )

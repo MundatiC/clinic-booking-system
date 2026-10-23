@@ -19,6 +19,7 @@ def test_register_normalises_email_and_phone(client: TestClient) -> None:
     body = r.json()  # type: ignore[attr-defined]
     assert body["email"] == "achieng.o@example.com"
     assert body["phone"] == "+254712345678"
+    assert body["created_at"].endswith("+03:00")  # clinic time, like every other timestamp
 
 
 def test_duplicate_email_case_insensitive_409(client: TestClient) -> None:
