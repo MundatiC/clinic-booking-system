@@ -215,28 +215,26 @@ More options (no Docker, quality gates) are in [Running locally](#running-locall
 
 ## 1. System design
 
+This section was written and committed before any application code: [`249dc60 docs: system design`](https://github.com/MundatiC/clinic-booking-system/commit/249dc60) on 23 October, the first commit in the repo. Later phases added to it and say so where they did.
+
 ### 1.1 Components
 
-```
-          HTTP
-           │
-┌──────────▼───────────┐   middleware: request-id · security headers · body-size limit
-│  API layer (routers) │   CORS allowlist · rate limiting (write endpoints) · JSON access log
-│  app/api/*           │   → parses/validates input (Pydantic), maps to service calls,
-└──────────┬───────────┘     shapes responses. No business rules here.
-           │
-┌──────────▼───────────┐
-│  Service layer       │   booking rules: slot grid, working hours, lead time, advance
-│  app/services/*      │   window, cancel/reschedule state machine, availability calc.
-└──────────┬───────────┘   Depends on a Clock (injected) and repositories.
-           │
-┌──────────▼───────────┐
-│  Repository layer    │   SQLAlchemy queries only. Row locking (FOR UPDATE),
-│  app/repositories/*  │   translating IntegrityError → domain errors.
-└──────────┬───────────┘
-           │
-      PostgreSQL          source of truth for "a slot can be booked once"
-                          (partial unique indexes)
+```mermaid
+flowchart TD
+    client["Clients: Swagger, curl, Postman, the booking page"] -->|HTTPS| mw
+    subgraph app["FastAPI app: one Docker container on Render"]
+        mw["Middleware: request id, security headers, body-size limit, CORS allowlist, rate limits, JSON access log"]
+        api["API layer (app/api): validates input with Pydantic, calls services, shapes responses. No business rules"]
+        svc["Service layer (app/services): slot grid, working hours, lead time, advance window, cancel and reschedule rules, availability"]
+        repo["Repository layer (app/repositories): SQLAlchemy queries only, row locks, unique violations mapped to domain errors"]
+        clock["Clock, injected"]
+        mw --> api --> svc --> repo
+        clock -.-> svc
+    end
+    repo --> db[("PostgreSQL: partial unique indexes make each slot bookable once")]
+    svc -.->|emails, after the response| smtp["SMTP: Mailpit locally"]
+    gha["GitHub Actions: CI on every PR, deploy on merge to main"] -->|deploy hook| app
+    ping["cron-job.org, GitHub keep-alive as backup"] -->|GET /health every 10 min| mw
 ```
 
 Cross-cutting (`app/core/`):
@@ -990,7 +988,17 @@ A second, smaller one: the AI proposed proving the concurrency test is meaningfu
 
 **4. Decisions made without AI**
 
-Questions 1–3 cover what the AI did (the full record is [`AI_LOG.md`](AI_LOG.md)). These are my own decisions.
+Questions 1–3 cover what the AI did (the full record is [`AI_LOG.md`](AI_LOG.md)). Two decisions I made myself:
+
+**Decision 1: keep the demo awake with a keep-alive ping** (decisions 18 and 44).
+- **What:** a scheduled `GET /health` every 10 minutes from outside Render, written into my original brief. When GitHub's cron turned out to run only every few hours, I checked the runs and moved the main ping to a cron-job.org job, with the GitHub cron kept as a backup.
+- **Why I trusted my own judgment:** I knew Render's free tier sleeps, and a reviewer's first impression would be a minute-long wait. That's about the reviewer's experience, which I could judge better than a tool could. When GitHub's cron proved unreliable, I checked the runs myself and moved to cron-job.org.
+
+**Decision 2: leave the live demo without email** (decision 50).
+- **What:** on the first deploy I noticed no email arrived. Render's free tier blocks outgoing SMTP. Of the options (Brevo on port 2525, a paid instance, or leave it), I left it and documented it.
+- **Why I trusted my own judgment:** the brief doesn't ask for email. It works locally, and confirmation is already off on the demo, so nobody is blocked. Paying for or rewiring email would add risk for no graded benefit: it's "a proof of concept really since it does work locally".
+
+**Other decisions I made**
 
 **Architecture, set in my original brief before any code was written.** The AI designed and built around these; it did not choose them.
 - **Slots are computed from working hours, not stored:** no cron to keep slot rows generated, and no drift when hours change (§1.3).
@@ -1001,7 +1009,6 @@ Questions 1–3 cover what the AI did (the full record is [`AI_LOG.md`](AI_LOG.m
 - **Real Postgres in every test, never SQLite,** because partial unique indexes and real concurrency are what must be tested, including a race with real threads.
 - **State the no-auth risk instead of ignoring it** (§1.8).
 - **The stack and platform:** FastAPI, SQLAlchemy 2.0, Alembic, uv, Docker, GitHub Actions, and Render.
-- **The keep-alive pinger:** Render's free tier sleeps after ~15 idle minutes and a cold start takes up to a minute, so a scheduled ping keeps the demo responsive for reviewers (decision 18). When GitHub's cron turned out to run only every few hours, I set up a cron-job.org job that pings `/health` every 10 minutes, with the GitHub cron kept as a backup (decision 44).
 
 **My reviews of the AI's work.**
 - **First code review:** a client could fake its IP past the per-IP rate limits (`FORWARDED_ALLOW_IPS="*"` trusted the client-written `X-Forwarded-For` entry), the "change or cancel up to an hour before" text contradicted the code, setup comments still described Resend, emails used the old palette, and *My appointments* showed only 50 visits. I had all but one fixed, and the IP fix was confirmed on the live deploy.
@@ -1011,6 +1018,6 @@ Questions 1–3 cover what the AI did (the full record is [`AI_LOG.md`](AI_LOG.m
 **Email, start to finish.**
 - **Resend** for production email, with a local catcher (Mailpit) and templates for every account and booking event.
 - I spotted that Resend without a verified domain would block every reviewer at sign-up ("that confirming thing will not be practical"). So I made confirmation optional on the demo and switched to **Gmail SMTP**, which needs no domain (decisions 45–46).
-- On the first deploy, I noticed no email arrived: Render's free tier blocks outgoing SMTP ports. I chose to **leave it that way** and document it, since it's "a proof of concept really since it does work locally" (decision 50).
+- Then Render's free tier blocked outgoing SMTP, so the live demo sends none (decision 2 above).
 
 **Other calls:** deferring Render until the app was finished; adding a booking page; redesigning it from Google Stitch while keeping the export out of the repo and dropping its made-up details; and organising this README for reviewers, with the live API tested end to end. All of them are in [Decisions I made](#decisions-i-made).
