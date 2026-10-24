@@ -39,6 +39,7 @@ services:
         sync: false
       # Email via Gmail SMTP: reaches any inbox with no sending domain. SMTP_USER is the
       # Gmail address, SMTP_PASSWORD a Google app password, MAIL_FROM the same address.
+      # The free plan blocks outgoing SMTP ports, so on it no email is sent (README decision 50).
       - key: SMTP_HOST
         value: smtp.gmail.com
       - key: SMTP_PORT

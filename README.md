@@ -4,8 +4,8 @@ A REST API and booking page for a small clinic (5 doctors, 30-minute slots) wher
 
 It has patient accounts with email verification and password reset, staff accounts, a same-origin booking UI at `/`, and seven security testing tools in CI ([Security testing](#security-testing)).
 
-- **Live URL:** `TODO(Caleb): https://<service>.onrender.com`. Not deployed yet; filled in after the Render service is created (see [Manual steps](#manual-steps)). No URL is invented here.
-- **API docs:** `<live-url>/docs` (Swagger UI, with examples and documented error responses) and `<live-url>/redoc`. Locally: http://localhost:8000/docs
+- **Live URL:** https://clinic-booking-api-ixbo.onrender.com (Render free tier, deployed 2026-10-24).
+- **API docs:** https://clinic-booking-api-ixbo.onrender.com/docs (Swagger UI, with examples and documented error responses) and https://clinic-booking-api-ixbo.onrender.com/redoc. Locally: http://localhost:8000/docs
 - **Deploys:** every PR merged into **`main`** → GitHub Actions re-runs CI → Render deploy hook → smoke test on the public URL ([§3](#3-deployment-and-cicd)).
 - **Stack:** Python 3.12 · FastAPI · SQLAlchemy 2.0 · Alembic · Pydantic v2 · PostgreSQL 16 · uv · Docker · GitHub Actions · Render
 
@@ -26,8 +26,8 @@ The API and the booking page are **one service on one origin**: the page at `/` 
 | Booking page | `<live-url>/` |
 | Swagger UI (try every endpoint) | `<live-url>/docs` · ReDoc: `<live-url>/redoc` |
 | Health / readiness | `<live-url>/health` · `<live-url>/ready` |
-| Demo patient login | `demo.patient@example.com` / `TODO(Caleb)`: the `DEMO_PATIENT_PASSWORD` set on Render |
-| Your own account | Sign up on the page. **No email confirmation is needed on the demo** ([why](#decisions-caleb-made)); a confirmation email is still sent |
+| Demo patient login | `demo.patient@example.com` / `5QdqSesgQRlAv2ewz49yep3y` (opens only the fake demo patient) |
+| Your own account | Sign up on the page. **No email confirmation is needed on the demo** ([why](#decisions-caleb-made)). **The demo sends no email** (Render's free tier blocks outgoing mail, decision 50); every email works locally with Mailpit |
 
 The first request after ~15 idle minutes can take up to a minute (free-tier cold start; see [Keep-alive](#keep-alive-free-tier-cold-starts)).
 
@@ -370,6 +370,7 @@ The spec defines **no authentication**. The real consequence is that **anyone wh
 | 47 | Swagger has an **Authorize** button (an `HTTPBearer` scheme on protected routes) | Document the header only | Found while preparing for reviewers: without it, `/docs` couldn't call any protected endpoint |
 | 48 | Optional **demo patient login** from `DEMO_PATIENT_PASSWORD`, created by the seed like the staff account | Reviewers sign up themselves | A reviewer can try the API in seconds, and no credential lives in the repo |
 | 49 | UI redesign **from a Google Stitch export**, rebuilt in plain CSS. **Kept:** the layout, palette, type, components and states. **Dropped:** details Stitch made up that the API doesn't have (fees, insurers, room numbers, phone and WhatsApp lines, parking, credentials, a privacy claim, a consent checkbox for terms that don't exist, a mobile tab bar to pages that don't exist), and the doctor photos (initials instead). **Changed:** rescheduling reuses the full booking page (any day, any time) rather than Stitch's same-day panel. **Added:** the patient's phone in the staff schedule, so the front desk can call. Plan: Caleb's; what to keep and drop: chosen by Caleb from options | Ship Stitch's HTML as is; keep the made-up details as demo copy | Stitch's HTML needs a Tailwind CDN script and Google-hosted fonts and images, which the CSP (decision 41: own-origin only) forbids. Made-up fees or phone numbers could mislead a reviewer into thinking they are real |
+| 50 | **The live demo sends no email.** Render's free web services block outgoing traffic on the SMTP ports (25, 465, 587) since September 2025, so Gmail on 587 cannot connect; sign-in and booking still work because mail is sent in the background and failures are only logged. Left as is and documented. **Decision: Caleb**: it is out of scope and a proof of concept, and every email works locally (Mailpit) | Brevo SMTP on port 2525 (not blocked, env vars only); a paid Render instance (~$7/month); an HTTPS email API | Found on the first deploy, when Caleb noticed no email arrived. Confirmation is already off on the demo (decision 45), so no reviewer is blocked |
 
 ---
 
@@ -396,6 +397,7 @@ The project owner made these calls. Some were made when the AI offered options, 
 | **Second audit findings**, counted as Caleb's: staff could never book for a patient who had signed up online (`POST /patients` answered `409 PATIENT_EXISTS` with no id, and nothing else looks patients up), so the 409 now carries the existing `patient_id`; four unused ORM relationships were deleted. Both fixed | Caleb's (via the ponytail audit he ran) | [API reference](#2-api-reference) |
 | **taste-skill review findings**, counted as Caleb's (he ran the review): the phone doctor row snapped to the screen edge; two labels missed AA contrast (3.8 and 4.3:1); in the evening the Book page opened on a list of dead times; the first screen looked empty while loading; titles were landing-page size; small uppercase labels; a striped (gradient) break row; a glow on the selected doctor; terracotta as a second accent. All fixed: past times hidden with a "Show the next day" button, sentence-case labels, 28px titles, pale-tint selections (the skill's *Accent ladder* style, brand colours kept), terracotta only for cancelling and warnings. He also chose a **phone menu** (the skill's folded sidebar) and to **keep the Stitch cream** background (the skill warns on it) | Caleb's (via the taste-skill review he ran) | [The booking UI](#the-booking-ui) |
 | **Redesign the UI** from a Google Stitch export (Stitch also picked the theme), with minimal animations | Caleb's plan | Decision 49 |
+| **Leave the live demo without email** and document it, after he noticed no email arrived from Render. Caleb: it's "a proof of concept really since it does work locally" | Caleb's own, from options the AI offered (Brevo on port 2525, a paid instance, or leave it) | Decision 50 |
 | Keep the Stitch export and prompts **out of the repo**, as a guide only, and build "stuff we need" from it | Caleb's own | Decision 49 |
 | Drop Stitch's made-up details; initials instead of photos | Chosen by Caleb from options | Decision 49 |
 
@@ -617,7 +619,7 @@ forgot password ──► reset link (30 min, single use, newest only) ──►
 6. *Your password was changed*
 7. *Appointment booked / moved / cancelled*
 
-All of them are sent over plain SMTP. **Mailpit** catches them locally (inbox at http://localhost:8025). The Render demo sends them through **Gmail**, which needs no domain (decision 46):
+All of them are sent over plain SMTP. **Mailpit** catches them locally (inbox at http://localhost:8025). The Render demo is configured for **Gmail** (decision 46), but Render's free tier blocks outgoing SMTP, so **no email leaves the live demo** (decision 50). The same settings work on any host that allows SMTP:
 
 ```
 SMTP_HOST=smtp.gmail.com  SMTP_PORT=587  SMTP_SECURITY=starttls
@@ -727,7 +729,7 @@ Trade-offs, stated honestly:
 - (a) GitHub scheduled workflows are **best-effort**. They can be delayed or skipped under load, so this **reduces** cold starts but does not guarantee zero.
 - (b) GitHub **disables scheduled workflows after 60 days without repository activity**.
 - (c) ~4,300 runs/month, each billed at least 1 minute: **free on a public repo** (this one is public), but it would exceed the free minutes of a private repo. Keep the repo public, or use an external pinger.
-- (d) One always-on free instance fits within Render's monthly free instance hours (~744 h needed out of the free allowance). This does **not** stop the **free Postgres from expiring** after Render's time limit (30 days at the time of writing; check the dashboard). `TODO(Caleb)`: note the expiry date before submission.
+- (d) One always-on free instance fits within Render's monthly free instance hours (~744 h needed out of the free allowance). This does **not** stop the **free Postgres from expiring** after Render's time limit (30 days at the time of writing). **The demo database expires on 23 November 2026** and is then deleted unless upgraded; after that, re-create it from the Blueprint (the start script migrates and seeds).
 - (e) This is a demo-grade workaround. The production answer is a paid always-on instance, or accepting cold starts behind a status page.
 - (f) Optional second layer (manual): an external uptime monitor (UptimeRobot or cron-job.org) on `<APP_URL>/health`.
 
@@ -751,19 +753,19 @@ Use a **fine-grained personal access token** limited to *this repository only*, 
 - ~~No authentication~~: fixed in phase 2 ([Accounts and email](#accounts-and-email)). What's still missing on accounts: MFA, account deletion/export, a breached-password check, and staff management beyond the seeded account.
 - Lockout counters, like rate limits, are **per process, in memory**: they reset on restart and aren't shared between instances. Per-email lockout can also be used to lock someone out for 15 minutes on purpose (the usual lockout trade-off). Moving to Redis fixes both.
 - Emails have **no retry**. A mail outage means a lost verification or reset email; the user can request it again.
-- Gmail SMTP (the demo's provider) allows about 500 messages a day, and mail from a personal address can land in spam. That's fine for a demo; a real clinic should send from its own verified domain.
+- **No email from the live demo** (decision 50): Render's free tier blocks outgoing SMTP. Where SMTP is allowed, Gmail allows about 500 messages a day and mail from a personal address can land in spam; a real clinic should send from its own verified domain.
 - With confirmation off (the demo), anyone can sign up with an email they don't own. They can't reach anyone else's records (decision 45), but they can book under that address.
-- Rate limiting is **per process, in memory**. Multiple instances need Redis or edge limiting. Behind Render, client IPs come from `X-Forwarded-For`, trusted only from private proxy addresses (`FORWARDED_ALLOW_IPS="10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"`). The earlier `"*"` let a client fake its IP: uvicorn then reads the *first* entry, which the client writes (audit finding 1, Caleb). After the first deploy, check once that a forged `X-Forwarded-For` does not change the logged client IP.
+- Rate limiting is **per process, in memory**. Multiple instances need Redis or edge limiting. Behind Render, client IPs come from `X-Forwarded-For`, trusted only from private proxy addresses (`FORWARDED_ALLOW_IPS="10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"`). The earlier `"*"` let a client fake its IP: uvicorn then reads the *first* entry, which the client writes (audit finding 1, Caleb). Checked on the live deploy (2026-10-24): 12 failed sign-ins, each with a different forged `X-Forwarded-For`, were still cut off after 10, the same as with no header.
 - Free tier: cold starts (mitigated by keep-alive), the free Postgres expires, and there are no backups.
 - Doctors' holidays/time off, variable durations, and notifications are not implemented (growth path §1.9).
 - `POST /patients` reveals whether an email is registered (decision 25). It is staff-only now, which limits this to staff.
-- The Render side (deploy hook, `RENDER_GIT_COMMIT`, the blueprint) is **not verified** yet, because no Render account was available to this session.
+- The Render side is verified: the Blueprint created both services, migrations and the seed ran on boot, `/health` reports the deployed commit (`RENDER_GIT_COMMIT`), and the deploy workflow's hook + smoke test passed on the live URL.
 
 ---
 
 ## Manual steps
 
-Things that need Caleb's accounts, so they were not faked:
+Things that need Caleb's accounts, so they were not faked. Steps 1–8, 11 and 12 were done on 2026-10-24 (Gmail is set, but the free tier blocks it: decision 50):
 
 1. **Render:** sign in at https://dashboard.render.com, choose **New → Blueprint**, and connect `MundatiC/clinic-booking-system` (branch `main`). It reads `render.yaml` and creates `clinic-booking-api` and `clinic-db`. When prompted for `CORS_ORIGINS`, enter the service URL (e.g. `https://clinic-booking-api.onrender.com`; it can be fixed after step 2).
 2. Wait for the first deploy, then copy the public URL from the service page. Check that `curl https://<url>/health` returns `{"status":"ok","version":"<commit sha>"}`. If `version` is `dev`, Render did not inject `RENDER_GIT_COMMIT`. Add an env var `GIT_COMMIT` manually or tell me, and I'll adjust the smoke test.
