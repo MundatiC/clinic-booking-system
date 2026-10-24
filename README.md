@@ -226,26 +226,24 @@ This section was written and committed before any application code: [`249dc60 do
 ### 1.1 Components
 
 ```mermaid
-flowchart TD
-    client["Clients<br/>Swagger · curl · Postman · booking page"] -->|HTTPS| mw
-    subgraph app["FastAPI app · one Docker container on Render"]
-        mw["Middleware<br/>request id · security headers<br/>body limit · CORS · rate limits"]
-        api["API layer · app/api<br/>validation, responses"]
-        svc["Service layer · app/services<br/>booking rules, availability"]
-        repo["Repository layer · app/repositories<br/>queries, row locks"]
-        mw --> api --> svc --> repo
+flowchart LR
+    client["Clients<br/>Swagger, curl,<br/>Postman, UI"] -->|HTTPS| mw
+    subgraph app["FastAPI app on Render"]
+        direction LR
+        mw["Middleware"] --> api["API<br/>app/api"] --> svc["Services<br/>app/services"] --> repo["Repositories<br/>app/repositories"]
     end
-    clock["Clock, injected"] -.-> svc
-    repo --> db[("PostgreSQL<br/>partial unique indexes:<br/>a slot is booked once")]
-    svc -.->|email after the response| smtp["SMTP<br/>Mailpit locally"]
-    gha["GitHub Actions<br/>CI on PRs · deploy on merge"] -->|deploy hook| app
-    ping["cron-job.org<br/>+ GitHub keep-alive"] -->|GET /health, 10 min| mw
+    repo --> db[("PostgreSQL")]
+    gha["GitHub Actions"] -->|deploy hook| app
+    ping["cron-job.org"] -->|GET /health| mw
 ```
 
+- **Middleware:** request id, security headers, body-size limit, CORS allowlist, rate limits, JSON access log.
+
 - **API layer** (`app/api`): parses and validates input with Pydantic, calls a service, shapes the response. No business rules.
-- **Service layer** (`app/services`): the booking rules (slot grid, working hours, lead time, advance window, cancel and reschedule) and availability. "Now" comes from an injected Clock.
+- **Service layer** (`app/services`): the booking rules (slot grid, working hours, lead time, advance window, cancel and reschedule) and availability. "Now" comes from an injected Clock. Emails go out over SMTP after the response.
 - **Repository layer** (`app/repositories`): SQLAlchemy queries only, row locks (`FOR UPDATE`), and unique violations translated into domain errors.
 - **PostgreSQL** is the source of truth for "a slot can be booked once" (§1.4).
+- **Around it:** GitHub Actions runs CI on every PR and deploys on merge to `main` through Render's deploy hook; cron-job.org pings `/health` every 10 minutes so the free instance stays awake (§3).
 
 Cross-cutting (`app/core/`):
 
