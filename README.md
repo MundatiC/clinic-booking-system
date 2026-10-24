@@ -1,44 +1,165 @@
 # Clinic Booking System
 
-A REST API and booking page for a small clinic (5 doctors, 30-minute slots) where patients can see free slots, book, cancel, and reschedule appointments. It was built for the Savannah Informatics Implementation Engineer take-home.
+**Savannah Informatics, Implementation Engineer take-home.** A REST API for a small clinic with 5 doctors who work in 30-minute slots: a patient sees which slots are free for a doctor on a day, books one, and can cancel or reschedule it. A booked slot can never be booked by anyone else. Built with FastAPI and PostgreSQL, deployed on Render, with CI on every pull request and deploy-on-merge through GitHub Actions.
 
-It has patient accounts with email verification and password reset, staff accounts, a same-origin booking UI at `/`, and seven security testing tools in CI ([Security testing](#security-testing)).
+| | |
+|---|---|
+| **Live API** | https://clinic-booking-api-ixbo.onrender.com |
+| **Swagger UI** (try every endpoint in the browser) | https://clinic-booking-api-ixbo.onrender.com/docs |
+| **ReDoc** | https://clinic-booking-api-ixbo.onrender.com/redoc |
+| **OpenAPI schema** (import into Postman or Insomnia) | https://clinic-booking-api-ixbo.onrender.com/openapi.json |
+| **Demo patient login** | `demo.patient@example.com` / `5QdqSesgQRlAv2ewz49yep3y` (a fake patient, safe to share) |
+| **Booking page** (an extra, not asked for) | https://clinic-booking-api-ixbo.onrender.com/ |
+| **Stack** | Python 3.12 · FastAPI · SQLAlchemy 2.0 · Alembic · Pydantic v2 · PostgreSQL 16 · uv · Docker · GitHub Actions · Render |
 
-- **Live URL:** https://clinic-booking-api-ixbo.onrender.com (Render free tier, deployed 2026-10-24).
-- **API docs:** https://clinic-booking-api-ixbo.onrender.com/docs (Swagger UI, with examples and documented error responses) and https://clinic-booking-api-ixbo.onrender.com/redoc. Locally: http://localhost:8000/docs
-- **Deploys:** every PR merged into **`main`** → GitHub Actions re-runs CI → Render deploy hook → smoke test on the public URL ([§3](#3-deployment-and-cicd)).
-- **Stack:** Python 3.12 · FastAPI · SQLAlchemy 2.0 · Alembic · Pydantic v2 · PostgreSQL 16 · uv · Docker · GitHub Actions · Render
+> **Free tier notes.** The first request after ~15 idle minutes can take up to a minute (a keep-alive pings every 10 minutes to prevent this). The demo database expires on **23 November 2026**. The live demo sends **no email**, because Render's free tier blocks outgoing mail; every email works locally (decision 50).
 
-> Section 1 (system design) was written and committed **before any application code** (first commit, `docs: system design`). Each later piece landed through its own PR, so the history shows CI running on PRs and deploy-on-merge.
-
-**Contents:** [Try it](#try-it) · [Tools used](#tools-used) · [1. System design](#1-system-design) · [Assumptions & decisions](#assumptions--decisions) · [Decisions Caleb made](#decisions-caleb-made) · [Running locally](#running-locally) · [2. API reference](#2-api-reference) · [Accounts and email](#accounts-and-email) · [Security testing](#security-testing) · [3. Deployment and CI/CD](#3-deployment-and-cicd) · [Known limitations](#known-limitations) · [Manual steps](#manual-steps) · [4. AI reflection](#4-ai-reflection)
+**Contents:** [Where each requirement is](#where-each-requirement-is) · [Test the API](#test-the-api) · [The booking page (extra)](#the-booking-page-extra) · [Run it locally](#locally-docker-one-command) · [1. System design](#1-system-design) · [Assumptions & decisions](#assumptions--decisions) · [Decisions Caleb made](#decisions-caleb-made) · [2. API reference](#2-api-reference) · [Accounts and email](#accounts-and-email) · [Security testing](#security-testing) · [3. Deployment and CI/CD](#3-deployment-and-cicd) · [Known limitations](#known-limitations) · [4. AI reflection](#4-ai-reflection) · [AI_LOG.md](AI_LOG.md)
 
 ---
 
-## Try it
+## Where each requirement is
 
-The API and the booking page are **one service on one origin**: the page at `/` is a static client of the same REST API that `/docs` documents. Everything the page does can also be done with curl or Swagger.
+| Asked for | Where it is | How to check it |
+|---|---|---|
+| `POST /appointments`: book, validated for working hours, not in the past, not taken | [§1.6 Booking rules](#16-booking-rules-shared-by-book-and-reschedule), `app/services/booking.py` | [curl steps 3–5](#2-curl) |
+| `GET /doctors/{id}/availability`: free 30-minute slots on a date | [§1.3](#13-key-decision-slots-are-computed-not-stored) (computed, not stored) | curl step 2 |
+| `PATCH /appointments/{id}/cancel`: with a reason, slot freed, error if already cancelled | [§1.6](#16-booking-rules-shared-by-book-and-reschedule) | curl step 8 |
+| `PATCH /appointments/{id}/reschedule`: old slot freed, new slot validated like a booking, error if cancelled | [§1.6](#16-booking-rules-shared-by-book-and-reschedule) | curl step 6 |
+| Meaningful validation errors with correct status codes | [Error codes](#error-codes): one error envelope, stable codes | Any failing call |
+| Code structured across files and modules | [§1.1 Components](#11-components): routers → services → repositories | `app/` |
+| Tests for the booking logic | [What the tests cover](#what-the-tests-cover): real Postgres, including a 10-thread double-booking race | `make test`, or any PR's CI run |
+| **Bonus:** `GET /patients/{id}/appointments` (upcoming, sorted) | Paginated, with a total | curl step 7 |
+| **Bonus:** no bookings within 1 hour of now | `422 TOO_SOON` | curl step 5 |
+| Deployed to a cloud provider with a public URL | Render, Frankfurt | The links above |
+| CI runs the tests on every pull request | `.github/workflows/ci.yml` (+ security scans) | [Actions tab](https://github.com/MundatiC/clinic-booking-system/actions), any merged PR |
+| Auto-deploy when a PR merges into `main` | `.github/workflows/deploy.yml`: CI again → Render deploy hook → smoke test on the live URL | [§3](#3-deployment-and-cicd) |
+| README: design decisions | [§1 System design](#1-system-design) (written before any code), [Assumptions & decisions](#assumptions--decisions) | |
+| README: how to run locally | [Locally](#locally-docker-one-command), [Running locally](#running-locally) | |
+| README: CI/CD note | [§3 Deployment and CI/CD](#3-deployment-and-cicd) | |
+| README: Section 4, AI reflection | [§4 AI reflection](#4-ai-reflection), full log in [`AI_LOG.md`](AI_LOG.md), and [Decisions Caleb made](#decisions-caleb-made) | |
 
-### On Render (the live demo)
+**Beyond the brief:** patient and staff accounts with sessions, so nobody can cancel someone else's booking; a booking page; email notifications; seven security testing tools in CI; and the keep-alive. Each is described below and listed in the decisions table.
 
-| What | Where |
-|---|---|
-| Booking page | `<live-url>/` |
-| Swagger UI (try every endpoint) | `<live-url>/docs` · ReDoc: `<live-url>/redoc` |
-| Health / readiness | `<live-url>/health` · `<live-url>/ready` |
-| Demo patient login | `demo.patient@example.com` / `5QdqSesgQRlAv2ewz49yep3y` (opens only the fake demo patient) |
-| Your own account | Sign up on the page. **No email confirmation is needed on the demo** ([why](#decisions-caleb-made)). **The demo sends no email** (Render's free tier blocks outgoing mail, decision 50); every email works locally with Mailpit |
+---
 
-The first request after ~15 idle minutes can take up to a minute (free-tier cold start; see [Keep-alive](#keep-alive-free-tier-cold-starts)).
+## Test the API
 
-**Testing the API in Swagger:**
-1. Open `/docs`, expand `POST /auth/token`, choose **Try it out** and send `{"email": "demo.patient@example.com", "password": "…"}`.
-2. Copy `access_token` from the response, click **Authorize** (top right), paste it, and confirm.
-3. Every protected endpoint now sends `Authorization: Bearer <token>`. Try `GET /doctors/1/availability?date=<a weekday>`, then `POST /appointments` with `{"doctor_id": 1, "start_at": "<a free slot start>"}`.
+Since the brief defines no auth, the obvious risk was that anyone holding an appointment id could cancel it (§1.8). So **the appointment endpoints need a signed-in account**: get a token from `POST /auth/token`, then send `Authorization: Bearer <token>`. Doctors and availability are public. A patient acts only on their own appointments; the staff account can act on anyone's.
 
-**Testing the API with curl:** see [2. API reference](#2-api-reference). Replace `http://localhost:8000` with the live URL.
+### 1. Swagger (nothing to install)
 
-### Locally (Docker, one command)
+1. Open https://clinic-booking-api-ixbo.onrender.com/docs.
+2. Expand **`POST /auth/token`**, choose **Try it out**, send the demo patient's email and password from the table at the top, and copy `access_token` from the response.
+3. Click **Authorize** (top right), paste the token, and confirm. Every protected call now sends it.
+4. Run **`GET /doctors/{doctor_id}/availability`** with `doctor_id` 1 and an upcoming weekday as `date` (e.g. `2026-11-02`), and copy one slot's `start`.
+5. Run **`POST /appointments`** with `{"doctor_id": 1, "start_at": "<that start>"}`. Run it again to see `409 SLOT_TAKEN`.
+6. Try `PATCH /appointments/{id}/reschedule`, `GET /patients/{patient_id}/appointments` (the id is in the booking response) and `PATCH /appointments/{id}/cancel`.
+
+Every endpoint in Swagger lists its error responses with examples.
+
+### 2. curl
+
+Copy and paste in order (bash, Git Bash, WSL or macOS; needs `python` to read the JSON). On Windows PowerShell, type `curl.exe`, not `curl`, or use the PowerShell block below.
+
+```bash
+B=https://clinic-booking-api-ixbo.onrender.com
+DAY=2026-11-02    # any upcoming weekday within 90 days
+PW=5QdqSesgQRlAv2ewz49yep3y    # the demo patient's, from the table at the top
+json() { python -c "import json,sys; print(json.load(sys.stdin)$1)"; }
+
+# 1. Sign in as the demo patient and keep the token
+TOKEN=$(curl -s -X POST $B/auth/token -H 'Content-Type: application/json' \
+  -d "{\"email\":\"demo.patient@example.com\",\"password\":\"$PW\"}" | json '["access_token"]')
+AUTH="Authorization: Bearer $TOKEN"
+
+# 2. Free slots for doctor 1 that day (public); take the last one
+curl -s "$B/doctors/1/availability?date=$DAY"
+START=$(curl -s "$B/doctors/1/availability?date=$DAY" | json '["slots"][-1]["start"]')
+
+# 3. Book it -> 201
+APPT=$(curl -s -X POST $B/appointments -H "$AUTH" -H 'Content-Type: application/json' \
+  -d "{\"doctor_id\":1,\"start_at\":\"$START\"}" | json '["id"]'); echo $APPT
+
+# 4. Book the same slot again -> 409 SLOT_TAKEN
+curl -s -X POST $B/appointments -H "$AUTH" -H 'Content-Type: application/json' \
+  -d "{\"doctor_id\":1,\"start_at\":\"$START\"}"
+
+# 5. The rules -> 422 with a specific code each
+curl -s -X POST $B/appointments -H "$AUTH" -H 'Content-Type: application/json' \
+  -d "{\"doctor_id\":1,\"start_at\":\"${DAY}T09:15:00+03:00\"}"    # NOT_ON_SLOT_GRID
+curl -s -X POST $B/appointments -H "$AUTH" -H 'Content-Type: application/json' \
+  -d "{\"doctor_id\":1,\"start_at\":\"${DAY}T12:00:00+03:00\"}"    # OUTSIDE_WORKING_HOURS (lunch)
+curl -s -X POST $B/appointments -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"doctor_id":1,"start_at":"2020-01-06T09:00:00+03:00"}'     # SLOT_IN_PAST
+curl -s -X POST $B/appointments -H "$AUTH" -H 'Content-Type: application/json' \
+  -d "{\"doctor_id\":1,\"start_at\":\"${DAY}T09:00:00\"}"          # VALIDATION_ERROR: no time zone
+# TOO_SOON: any on-grid time less than an hour from now
+
+# 6. Reschedule to the first slot of the day -> 200; the old slot is free again
+NEW=$(curl -s "$B/doctors/1/availability?date=$DAY" | json '["slots"][0]["start"]')
+curl -s -X PATCH $B/appointments/$APPT/reschedule -H "$AUTH" -H 'Content-Type: application/json' \
+  -d "{\"start_at\":\"$NEW\"}"
+
+# 7. Bonus: my upcoming appointments, soonest first
+ME=$(curl -s $B/auth/me -H "$AUTH" | json '["patient"]["id"]')
+curl -s "$B/patients/$ME/appointments?limit=20&offset=0" -H "$AUTH"
+
+# 8. Cancel -> 200, cancel again -> 409 ALREADY_CANCELLED, reschedule it -> 409 APPOINTMENT_CANCELLED
+curl -s -X PATCH $B/appointments/$APPT/cancel -H "$AUTH" -H 'Content-Type: application/json' -d '{"reason":"Travelling that week"}'
+curl -s -X PATCH $B/appointments/$APPT/cancel -H "$AUTH" -H 'Content-Type: application/json' -d '{"reason":"Travelling that week"}'
+curl -s -X PATCH $B/appointments/$APPT/reschedule -H "$AUTH" -H 'Content-Type: application/json' -d "{\"start_at\":\"$START\"}"
+
+# 9. Without a token -> 401; someone else's appointment -> 404 (not 403, so ids can't be probed)
+curl -s -X PATCH $B/appointments/$APPT/cancel -H 'Content-Type: application/json' -d '{"reason":"not mine"}'
+curl -s $B/appointments/00000000-0000-4000-8000-000000000000 -H "$AUTH"
+```
+
+**Windows PowerShell** (no extra tools):
+
+```powershell
+$B = "https://clinic-booking-api-ixbo.onrender.com"; $Day = "2026-11-02"
+$PW = "5QdqSesgQRlAv2ewz49yep3y"    # the demo patient's, from the table at the top
+$t = Invoke-RestMethod -Method Post "$B/auth/token" -ContentType "application/json" -Body (@{ email = "demo.patient@example.com"; password = $PW } | ConvertTo-Json)
+$H = @{ Authorization = "Bearer $($t.access_token)" }
+$start = (Invoke-RestMethod "$B/doctors/1/availability?date=$Day").slots[-1].start
+$appt = Invoke-RestMethod -Method Post "$B/appointments" -Headers $H -ContentType "application/json" -Body (@{ doctor_id = 1; start_at = $start } | ConvertTo-Json)
+$appt
+Invoke-RestMethod -Method Patch "$B/appointments/$($appt.id)/cancel" -Headers $H -ContentType "application/json" -Body '{"reason":"Travelling that week"}'
+```
+
+Error responses make `Invoke-RestMethod` throw; the error envelope is in the exception message.
+
+### 3. Postman or Insomnia
+
+1. **Import → Link**, paste https://clinic-booking-api-ixbo.onrender.com/openapi.json. Every endpoint arrives with its request examples.
+2. The schema has no server address, so set the collection variable **`baseUrl`** to `https://clinic-booking-api-ixbo.onrender.com`.
+3. Send **`POST /auth/token`** with the demo login above and copy `access_token`.
+4. On the collection's **Authorization** tab choose **Bearer Token** and paste it (if Postman created a `bearerToken` variable from the schema, paste it there instead). Requests that inherit auth now send it.
+
+Tokens last 30 minutes of inactivity (12 hours at most). `POST /auth/logout` ends one at once.
+
+### 4. One command that checks everything
+
+`scripts/live_check.py` (standard library only) runs the whole flow above against any URL and prints PASS/FAIL for each step: public endpoints, every booking rule, double booking, reschedule freeing the old slot, cancel, the upcoming list, other people's records answering 404, and sign-out killing the token. With a staff login it also registers a walk-in patient, books for them, reads the day schedule and cancels. It cancels everything it books.
+
+```bash
+python scripts/live_check.py https://clinic-booking-api-ixbo.onrender.com
+```
+
+It asks for the passwords and never prints them.
+
+**Live result (2026-10-24, 09:49 Nairobi time): 41/41 passed**, including the 7 staff checks. Caleb ran it, since the script needs the passwords. The run booked doctor 1 at 16:30 on 26 October, moved it to 16:00, and cancelled it.
+
+---
+
+## The booking page (extra)
+
+Not part of the brief: https://clinic-booking-api-ixbo.onrender.com/ is a static client of the same API on the same origin, so everything it does goes through the endpoints above. Sign in with the demo patient, pick a doctor and a day, book, then change the time or cancel under *My appointments*. New accounts can sign up on the page and sign in at once on the demo (decision 45). Staff sign in to a day schedule per doctor. Details are in [The booking UI](#the-booking-ui).
+
+---
+
+## Locally (Docker, one command)
 
 ```bash
 git clone https://github.com/MundatiC/clinic-booking-system && cd clinic-booking-system
@@ -53,7 +174,7 @@ docker compose up --build
 | Demo patient | `demo.patient@example.com` / `demo patient for local testing` |
 | Staff (day schedule, walk-ins) | `staff@example.com` / `reception desk for local testing` |
 
-Locally, sign-up **does** require confirming the email. Mailpit catches the message, so open http://localhost:8025, click the link, then press **Confirm my email**. Those two passwords exist only in `docker-compose.yml` for local use. Production values come from Render env vars.
+Migrations and the seed run on boot. Every curl command above works locally with `B=http://localhost:8000` and the local demo password. Locally, sign-up **does** require confirming the email: Mailpit catches the message, so open http://localhost:8025, click the link, then press **Confirm my email**. The two local passwords exist only in `docker-compose.yml`; production values come from Render env vars.
 
 **On Windows:**
 - `make` usually isn't installed. Every `make` target is a one-line command in the `Makefile`, for example `make test` is `python -m uv run pytest`.
@@ -81,7 +202,7 @@ More options (no Docker, quality gates) are in [Running locally](#running-locall
 | Backend | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 (sync, psycopg 3), Alembic, argon2-cffi |
 | Database | PostgreSQL 16 (partial unique indexes, row locks), also used in every test |
 | Frontend | Vanilla HTML/CSS/JS served by the API (no framework, no build, no CDN), self-hosted Newsreader + Plus Jakarta Sans fonts, design from a Google Stitch export |
-| Email | stdlib `smtplib` + `string.Template`. Mailpit locally, Gmail SMTP on the demo (Resend once a domain is verified) |
+| Email | stdlib `smtplib` + `string.Template`. Mailpit locally. Gmail SMTP is configured for the demo, but Render's free tier blocks it (decision 50) |
 | Packaging / runtime | uv (locked deps), Docker (multi-stage, non-root, read-only root FS), docker compose |
 | Tests | pytest, coverage, Hypothesis via **Schemathesis** (API fuzzing) |
 | Security | pytest security suite, **OWASP ZAP**, **Trivy**, **Semgrep**, **CodeQL**, **zizmor**, **hadolint**, bandit, pip-audit, gitleaks, Dependabot ([details](#security-testing)) |
@@ -398,6 +519,7 @@ The project owner made these calls. Some were made when the AI offered options, 
 | **taste-skill review findings**, counted as Caleb's (he ran the review): the phone doctor row snapped to the screen edge; two labels missed AA contrast (3.8 and 4.3:1); in the evening the Book page opened on a list of dead times; the first screen looked empty while loading; titles were landing-page size; small uppercase labels; a striped (gradient) break row; a glow on the selected doctor; terracotta as a second accent. All fixed: past times hidden with a "Show the next day" button, sentence-case labels, 28px titles, pale-tint selections (the skill's *Accent ladder* style, brand colours kept), terracotta only for cancelling and warnings. He also chose a **phone menu** (the skill's folded sidebar) and to **keep the Stitch cream** background (the skill warns on it) | Caleb's (via the taste-skill review he ran) | [The booking UI](#the-booking-ui) |
 | **Redesign the UI** from a Google Stitch export (Stitch also picked the theme), with minimal animations | Caleb's plan | Decision 49 |
 | **Leave the live demo without email** and document it, after he noticed no email arrived from Render. Caleb: it's "a proof of concept really since it does work locally" | Caleb's own, from options the AI offered (Brevo on port 2525, a paid instance, or leave it) | Decision 50 |
+| **README reorganised for reviewers**: the live URL first, how to test the API with Swagger, curl and Postman, the booking page as an extra, then the submission sections, the AI work and his inputs. The live API to be tested thoroughly, since the API is what was asked for | Caleb's request | [Where each requirement is](#where-each-requirement-is), [Test the API](#test-the-api) |
 | Keep the Stitch export and prompts **out of the repo**, as a guide only, and build "stuff we need" from it | Caleb's own | Decision 49 |
 | Drop Stitch's made-up details; initials instead of photos | Chosen by Caleb from options | Decision 49 |
 
@@ -448,24 +570,17 @@ Phase 1 local run: **121 passed**, 98% line+branch coverage. Phase 2 local run b
 
 ## 2. API reference
 
-Full interactive docs live at `/docs`.
+The quickest way in is [Test the API](#test-the-api) above (Swagger, curl, PowerShell, Postman). Full interactive docs live at `/docs`.
 
-**Since phase 2, bookings need a signed-in account.** From curl, get a bearer token and send it with every request:
+Locally, a new patient account must confirm its email first. The flow with curl:
 
 ```bash
 B=http://localhost:8000
-# Sign up, then open the verification email in Mailpit (http://localhost:8025) and use its token:
 curl -s -X POST $B/auth/register -H 'Content-Type: application/json' \
   -d '{"full_name":"Wanjiku Njoroge","phone":"0712 345 678","email":"wanjiku@example.com","password":"plum jacaranda morning walk"}'
 # 202 {"message":"If that email can be used, we have sent a message to it. Check your inbox."}
-curl -s -X POST $B/auth/verify -H 'Content-Type: application/json' -d '{"token":"<token from the email link>"}'
+curl -s -X POST $B/auth/verify -H 'Content-Type: application/json' -d '{"token":"<token from the email link in Mailpit>"}'
 # 200 {"message":"Email confirmed. You can sign in now."}
-TOKEN=$(curl -s -X POST $B/auth/token -H 'Content-Type: application/json' \
-  -d '{"email":"wanjiku@example.com","password":"plum jacaranda morning walk"}' | python -c 'import json,sys;print(json.load(sys.stdin)["access_token"])')
-AUTH="Authorization: Bearer $TOKEN"
-# A patient books for themselves; patient_id may be omitted:
-curl -s -X POST $B/appointments -H "$AUTH" -H 'Content-Type: application/json' \
-  -d '{"doctor_id":1,"start_at":"2026-10-26T09:00:00+03:00"}'
 ```
 
 These auth calls were run against the Docker stack with Mailpit (sign-up, the verification email, verify, sign-in and a staff token all worked). The walkthrough below is **real output from phase 1**, before auth: next Monday was 2026-10-26 and IDs are shortened. Request and response bodies are unchanged except that every appointment call now needs `-H "$AUTH"`, and `POST /patients` is staff-only.
