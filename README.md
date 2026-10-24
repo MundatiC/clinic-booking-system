@@ -14,7 +14,7 @@
 
 > **Free tier notes.** The first request after ~15 idle minutes can take up to a minute (a keep-alive pings every 10 minutes to prevent this). The demo database expires on **23 November 2026**. The live demo sends **no email**, because Render's free tier blocks outgoing mail; every email works locally (decision 50).
 
-**Contents:** [Where each requirement is](#where-each-requirement-is) · [Test the API](#test-the-api) · [The booking page (extra)](#the-booking-page-extra) · [Run it locally](#locally-docker-one-command) · [1. System design](#1-system-design) · [Assumptions & decisions](#assumptions--decisions) · [Decisions I made](#decisions-i-made) · [2. API reference](#2-api-reference) · [Accounts and email](#accounts-and-email) · [Security testing](#security-testing) · [3. Deployment and CI/CD](#3-deployment-and-cicd) · [Known limitations](#known-limitations) · [4. AI reflection](#4-ai-reflection) · [AI_LOG.md](AI_LOG.md)
+**Contents:** [Where each requirement is](#where-each-requirement-is) · [Test the API](#test-the-api) · [The booking page (extra)](#the-booking-page-extra) · [Run it locally](#locally-docker-one-command) · [1. System design](#1-system-design) ([trade-offs](#110-trade-offs-at-a-glance)) · [Assumptions & decisions](#assumptions--decisions) · [Decisions I made](#decisions-i-made) · [2. API reference](#2-api-reference) · [Accounts and email](#accounts-and-email) · [Security testing](#security-testing) · [3. Deployment and CI/CD](#3-deployment-and-cicd) · [Known limitations](#known-limitations) · [4. AI reflection](#4-ai-reflection) · [AI_LOG.md](AI_LOG.md)
 
 ---
 
@@ -28,7 +28,7 @@
 | `PATCH /appointments/{id}/reschedule`: old slot freed, new slot validated like a booking, error if cancelled | [§1.6](#16-booking-rules-shared-by-book-and-reschedule) | curl step 6 |
 | Meaningful validation errors with correct status codes | [Error codes](#error-codes): one error envelope, stable codes | Any failing call |
 | Code structured across files and modules | [§1.1 Components](#11-components): routers → services → repositories | `app/` |
-| Tests for the booking logic | [What the tests cover](#what-the-tests-cover): real Postgres, including a 10-thread double-booking race | `make test`, or any PR's CI run |
+| Tests for the booking logic | [What the tests cover](#what-the-tests-cover): 210 tests on real Postgres, 98% coverage, including a 10-thread double-booking race | `make test`, or any PR's CI run |
 | **Bonus:** `GET /patients/{id}/appointments` (upcoming, sorted) | Paginated, with a total | curl step 7 |
 | **Bonus:** no bookings within 1 hour of now | `422 TOO_SOON` | curl step 5 |
 | Deployed to a cloud provider with a public URL | Render, Frankfurt | The links above |
@@ -259,6 +259,9 @@ erDiagram
     DOCTOR ||--o{ APPOINTMENT : "is booked for"
     PATIENT ||--o{ APPOINTMENT : books
     APPOINTMENT ||--o{ APPOINTMENT_EVENT : "audited by"
+    PATIENT |o--o| USER : "signs in as"
+    USER ||--o{ AUTH_SESSION : has
+    USER ||--o{ EMAIL_TOKEN : "is sent"
 
     DOCTOR {
         int id PK
@@ -300,11 +303,36 @@ erDiagram
         timestamptz to_start_at "nullable"
         timestamptz created_at
     }
+    USER {
+        uuid id PK
+        string email UK "lower-cased"
+        string password_hash "argon2id"
+        string role "patient | staff"
+        uuid patient_id FK "nullable, unique"
+        timestamptz email_verified_at "nullable"
+    }
+    AUTH_SESSION {
+        uuid id PK
+        uuid user_id FK
+        bytes token_hash UK "SHA-256, never the token"
+        timestamptz last_seen_at "30 min idle"
+        timestamptz expires_at "12 h absolute"
+    }
+    EMAIL_TOKEN {
+        bigint id PK
+        uuid user_id FK
+        string purpose "verify | reset"
+        bytes token_hash UK
+        timestamptz expires_at
+        timestamptz used_at "nullable, single use"
+    }
 ```
+
+`USER`, `AUTH_SESSION` and `EMAIL_TOKEN` were added in phase 2 with accounts ([Accounts and email](#accounts-and-email)). The booking tables did not change.
 
 Notes:
 - **WorkingHours** allows several windows per weekday (for example 08:00–12:00 and 13:00–17:00, so lunch is the gap). A weekday with no rows is a day off. A CHECK constraint enforces `end_time > start_time`.
-- **IDs.** Patients and appointments use **random UUIDv4**. These IDs are exposed in URLs and the API has no auth (see 1.8), so sequential integers would let anyone enumerate `/appointments/1..N` and cancel other people's bookings (IDOR). UUIDs make guessing infeasible. Doctors use small ints because they are public catalogue data (there are 5 of them) and readable IDs help clients and reviewers.
+- **IDs.** Patients and appointments use **random UUIDv4**. These IDs are exposed in URLs, and the brief's API has no auth (see 1.8), so sequential integers would let anyone enumerate `/appointments/1..N` and cancel other people's bookings (IDOR). UUIDs make guessing infeasible, and they still matter now that accounts exist: other people's IDs answer 404, and nobody can walk the ID space looking for one that works. Doctors use small ints because they are public catalogue data (there are 5 of them) and readable IDs help clients and reviewers.
 - **Email** is normalised to lower case before it is stored, and it carries a unique index, so `Jane@X.com` and `jane@x.com` are the same patient.
 - **appointment_events** is a minimal append-only audit trail (booked, rescheduled from→to, cancelled). It's cheap to write in the same transaction, and it keeps the history that an in-place reschedule would otherwise overwrite.
 
@@ -358,7 +386,7 @@ CREATE UNIQUE INDEX uq_appointments_patient_slot
 
 Validation runs in this order, and the first failure wins, with a stable error code:
 
-1. Doctor exists and is active, else `404 DOCTOR_NOT_FOUND`. Patient exists, else `404 PATIENT_NOT_FOUND`.
+1. Doctor exists and is active, else `404 DOCTOR_NOT_FOUND`. Patient exists, else `404 PATIENT_NOT_FOUND` (since phase 2 a patient books as themselves; staff name the patient).
 2. `start_at` is timezone-aware, else `422` (validation).
 3. Aligned to the 30-minute grid in clinic-local time (minute ∈ {0, 30}, seconds = 0), else `422 NOT_ON_SLOT_GRID`.
 4. Not in the past, else `422 SLOT_IN_PAST`. Not within `MIN_LEAD_TIME_MINUTES` (default 60) of now, else `422 TOO_SOON`.
@@ -417,14 +445,24 @@ Status codes: 201 created · 200 OK · 404 unknown resource · 409 state conflic
 
 ### 1.8 Security and auth trade-off
 
-> **Phase 2 update:** authentication is now implemented, but as email + password with server-side sessions, not the phone OTP + JWT planned below. I chose this so the demo needs no SMS provider. See [Accounts and email](#accounts-and-email). The original pre-code text is kept below unchanged.
+The spec defines **no authentication**. Taken literally, that means **anyone who has an appointment's ID can view, cancel or reschedule it**, and anyone who knows a patient's ID can list their appointments.
 
-The spec defines **no authentication**. The real consequence is that **anyone who has an appointment's ID can view, cancel or reschedule it**, and anyone can list a patient's appointments if they know the patient's ID. What I did instead of ignoring it:
+**At design time (written before any code),** I kept the core to the brief and limited the risk instead of ignoring it:
 
 - **Non-enumerable UUIDv4** IDs for patients and appointments, so there's no ID guessing.
 - **Rate limiting** on write endpoints (per client IP) to blunt brute-force and abuse. It uses an in-memory store, which is fine for one instance. **Multiple instances need a shared store (Redis)**.
 - Strict input validation (extra fields forbidden, length limits, email/phone formats), ORM-only queries, CORS allowlist, security headers, body-size limit, no PII in logs, and generic 500s.
-- **Planned real auth (first growth item):** patient login by phone OTP (fits Kenya, where SMS is ubiquitous) issuing short-lived JWTs, with every appointment endpoint scoped to `patient_id == token.sub`. Staff roles (reception/doctor/admin) would use separate scopes for managing other people's appointments.
+- **Real auth planned as the first growth item:** patient login by phone OTP (fits Kenya, where SMS is ubiquitous) issuing short-lived JWTs, with every appointment endpoint scoped to the signed-in patient, and staff roles for managing other people's appointments.
+
+**What the deployed API does now (phase 2).** Once the core was merged, I closed the gap, but with **email + password and server-side sessions** instead of OTP + JWT (decision 29): the demo needs no SMS provider, and a session can really be revoked (sign-out, password reset), which a JWT can't be before it expires.
+
+- The appointment and patient endpoints require sign-in. Doctors, availability, health and the docs stay public.
+- A patient acts only on their own records. Anyone else's appointment or patient ID answers **404, not 403**, so a response never confirms that an ID exists.
+- Staff can act on anyone's records, record walk-in patients (`POST /patients`) and read a doctor's day.
+- The required endpoints keep their paths and bodies, with one change: `POST /appointments` takes the patient from the session, so a patient need not send `patient_id` (staff must).
+- Sign-in is hardened: argon2id hashes, tokens stored only as SHA-256, `HttpOnly`/`SameSite=Strict` cookies, an Origin check against CSRF, per-email lockout, and identical answers for unknown emails. Details are in [Accounts and email](#accounts-and-email); the 63 security tests are in [Security testing](#security-testing).
+
+**What this costs:** every request reads its session from the database (cheap here; add a short cache if traffic grows), and lockout counters live in memory, like the rate limits.
 
 ### 1.9 Growth path (prioritised)
 
@@ -435,6 +473,24 @@ The spec defines **no authentication**. The real consequence is that **anyone wh
 5. **Variable durations / appointment types**: move to the `tstzrange` exclusion constraint (1.4).
 6. **Scale**: pagination is already in place for patient lists. Next would be a short-TTL availability cache invalidated on writes, a read replica for availability, a shared Redis rate limiter, and edge rate limiting/WAF.
 7. **Observability**: request IDs and JSON logs already exist. Add metrics (booking success/409 rate, latency) and tracing (OpenTelemetry), with alerts on `/ready`.
+
+### 1.10 Trade-offs at a glance
+
+Each choice above gives something up. This is what, and when I'd change it. The full list, with the alternatives considered, is in [Assumptions & decisions](#assumptions--decisions).
+
+| Choice | What it gives up | Revisit when |
+|---|---|---|
+| **Slots computed, not stored** (1.3) | No per-slot data (capacity, notes, a slot blocked by staff); slots are recomputed on every read | Group sessions, staff blocking single slots, or heavy read traffic |
+| **Partial unique index on the start time** (1.4) | Only works while every appointment is one grid-aligned 30-minute slot | Variable durations: switch to a `tstzrange` exclusion constraint |
+| **Reschedule edits the same row, same doctor** (1.6) | Changing doctor takes two steps (cancel, then book); the row keeps only the latest time, so history lives in `appointment_events` | The clinic wants to move patients between doctors |
+| **422 for rule violations, 409 for conflicts** (1.7) | Clients expecting `400` must read the code instead | Not planned: the codes are stable and documented |
+| **Sync SQLAlchemy in FastAPI's thread pool** (decision 14) | Each in-flight request holds a thread (about 40 by default) | Many slow concurrent requests: async drivers or more workers |
+| **In-memory rate limits and lockout** (decisions 19, 35) | Reset on restart and not shared between instances | More than one instance: move them to Redis or the edge |
+| **Server-side sessions, not JWT** (1.8) | A database read per request | Very high read traffic: a short session cache |
+| **Migrations and seed in the start script** (decision 22) | Unsafe if several instances start at once | More than one instance: a release job |
+| **No availability cache** (decision 17) | Two indexed queries per availability request (about 0.3 ms each at 100k rows) | Read replicas or heavy traffic |
+| **Emails sent after the response, no outbox** (decision 39) | An email lost in a mail outage is not retried | Delivery must be guaranteed: an outbox table and a worker |
+| **Render free tier** (§3) | Cold starts, a database that expires, no backups, no outgoing SMTP | A real clinic: a paid instance and database |
 
 ---
 
@@ -561,7 +617,7 @@ make audit    # pip-audit on the locked runtime dependencies
 
 Tests use `TEST_DATABASE_URL` (default `…localhost:55432/clinic_test`). The suite drops and recreates that database, runs the Alembic migrations, and truncates and re-seeds before each test. It truncates rather than rolling back because the concurrency tests need committed data visible across threads.
 
-Phase 1 local run: **121 passed**, 98% line+branch coverage. Phase 2 local run before the UI: **190 passed** (63 of them security tests), 97% coverage. `app/services` and `app/repositories` are at 100%, except `services/auth.py` (one branch) and one defensive re-raise in `repositories/integrity.py`. The UI PR's database-backed tests ran in CI.
+**Latest CI run on `main` (2026-10-24): 210 passed, 98% line+branch coverage.** Phase 1 local run: **121 passed**, 98% coverage. Phase 2 local run before the UI: **190 passed** (63 of them security tests), 97% coverage. `app/services` and `app/repositories` are at 100%, except `services/auth.py` (one branch) and one defensive re-raise in `repositories/integrity.py`. The UI PR's database-backed tests ran in CI.
 
 ---
 
@@ -873,7 +929,6 @@ Use a **fine-grained personal access token** limited to *this repository only*, 
 - Free tier: cold starts (mitigated by keep-alive), the free Postgres expires, and there are no backups.
 - Doctors' holidays/time off, variable durations, and notifications are not implemented (growth path §1.9).
 - `POST /patients` reveals whether an email is registered (decision 25). It is staff-only now, which limits this to staff.
-- The Render side is verified: the Blueprint created both services, migrations and the seed ran on boot, `/health` reports the deployed commit (`RENDER_GIT_COMMIT`), and the deploy workflow's hook + smoke test passed on the live URL.
 
 ---
 
