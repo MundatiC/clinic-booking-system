@@ -485,7 +485,7 @@ The spec defines **no authentication**. The real consequence is that **anyone wh
 | 41 | UI is one static page served by the API: vanilla JS, no build, no CDN, self-hosted font, strict CSP | React/Vite SPA | Smallest thing that does the job. Same origin means no CORS and cookie-only auth |
 | 42 | Availability response gained `working_hours` | UI infers windows from free slots | The day strip must show lunch and closed periods, which free slots alone can't express |
 | 43 | Dependency cooldown enforced in Dependabot (7 days), not in uv | `exclude-newer = "7 days"` in uv | Forcing it in uv today would roll FastAPI back 18 releases. See [Security testing](#security-testing) |
-| 44 | Keep-alive also triggerable externally (`workflow_dispatch` / `repository_dispatch`). My choice, alongside the cron | Cron only | GitHub's scheduler is best-effort; an outside scheduler is steadier |
+| 44 | **External keep-alive: a cron-job.org job sends `GET /health` every 10 min.** The GitHub cron stays as a backup, and the workflow can also be started externally (`workflow_dispatch` / `repository_dispatch`). My choice | Cron only; dispatching the workflow from cron-job.org with a GitHub token | GitHub's cron ran only every few hours here. Pinging `/health` directly needs no token stored at a third party |
 | 45 | Email confirmation is a setting, `REQUIRE_EMAIL_VERIFICATION`: on locally, **off on the Render demo**. A new account then signs in at once, but an account claiming a staff-created **walk-in record still needs the emailed link**. **My decision**, after I spotted the blocker | Always required; remove email entirely | Without a verified domain, Resend only delivers to its own account owner, so no reviewer could ever finish signing up. The walk-in exception keeps decision 34's guarantee: nobody reaches someone else's records by typing their email (tested) |
 | 46 | Demo email via **Gmail SMTP** (app password) instead of Resend. My choice, from the options | Resend with a bought domain; Brevo; no email | Reaches any inbox with no domain, free (~500/day), and it's only env vars (decision 38). Some mail may land in spam, which decision 45 makes harmless |
 | 47 | Swagger has an **Authorize** button (an `HTTPBearer` scheme on protected routes) | Document the header only | Found while preparing for reviewers: without it, `/docs` couldn't call any protected endpoint |
@@ -502,7 +502,7 @@ These calls were mine. Where I chose from options the AI offered, the row says s
 | Decision | How it was made | Where |
 |---|---|---|
 | Keep-alive pinger for the free tier | My own idea, in the original brief | Decision 18, [Keep-alive](#keep-alive-free-tier-cold-starts) |
-| Keep the cron **and** add an external trigger | Chosen from options the AI offered: an outside service "should always work" | Decision 44 |
+| Keep the cron **and** add an external keep-alive; cron-job.org pinging `/health` | Chosen from options the AI offered: an outside service "should always work". I picked cron-job.org | Decision 44 |
 | Defer Render until the app was finished | My call | [Deployment steps](#deployment-steps-taken) |
 | Add a booking UI in phase 2 | My request | [The booking UI](#the-booking-ui) |
 | Auth = email + password with server-side sessions | Chosen from options the AI offered | Decision 29 |
@@ -818,7 +818,7 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W):/src" -w /src semgrep/semgrep:1
 |---|---|---|
 | **CI** (`.github/workflows/ci.yml`) | every `pull_request` (and reused by Deploy) | **lint**: `ruff check`, `ruff format --check`, `mypy --strict`, `bandit`, `pip-audit --strict` on the locked runtime deps · **secrets**: gitleaks over full history · **tests**: Postgres 16 service, `alembic upgrade → downgrade base → upgrade`, `alembic check` (models ↔ migrations), `pytest --cov` (coverage XML uploaded) · **docker**: image builds. Any failure fails the PR. |
 | **Deploy** (`deploy.yml`) | `push` to **`main`**, i.e. when a PR is merged | Re-runs the whole CI on the merge result, then `POST`s the Render deploy hook, then `scripts/smoke.py` polls `<APP_URL>/health` until it reports **this commit** (Render's `RENDER_GIT_COMMIT`), then requires `/ready` 200 and a non-empty `/doctors`. A failed smoke test fails the workflow. `concurrency: deploy-production` (no overlapping deploys, never cancelled mid-way). It skips with a warning until the secret and variable exist (this is what the first run on `main` did). |
-| **Keep-alive** (`keepalive.yml`) | cron `*/10 * * * *` + manual + external trigger (`repository_dispatch`) | Pings `/health` from outside Render; see below. |
+| **Keep-alive** (`keepalive.yml`) | cron `*/10 * * * *` + manual + external trigger (`repository_dispatch`) | Pings `/health` from outside Render, as a backup to the cron-job.org job; see below. |
 | **Security** (`security.yml`) | every PR, `main`, weekly | Schemathesis fuzzing, OWASP ZAP (API + UI page), Trivy, Semgrep, zizmor, hadolint ([Security testing](#security-testing)). Any finding fails it. |
 | **CodeQL** (`codeql.yml`) | every PR, `main`, weekly | Python, JavaScript and Actions analysis; results under Security → Code scanning. |
 
@@ -843,9 +843,11 @@ Trade-offs, stated honestly:
 - (c) ~4,300 runs/month, each billed at least 1 minute: **free on a public repo** (this one is public), but it would exceed the free minutes of a private repo. Keep the repo public, or use an external pinger.
 - (d) One always-on free instance fits within Render's monthly free instance hours (~744 h needed out of the free allowance). This does **not** stop the **free Postgres from expiring** after Render's time limit (30 days at the time of writing). **The demo database expires on 23 November 2026** and is then deleted unless upgraded; after that, re-create it from the Blueprint (the start script migrates and seeds).
 - (e) This is a demo-grade workaround. The production answer is a paid always-on instance, or accepting cold starts behind a status page.
-- (f) Optional second layer (manual): an external uptime monitor (UptimeRobot or cron-job.org) on `<APP_URL>/health`.
+- (f) In practice GitHub's cron ran only every few hours on this repo (runs at 14:09, 18:23, 21:35, 00:01 and 04:31 UTC on 23–24 October), so the site still slept between runs. The second layer below is now the main keep-alive.
 
-**External trigger (my choice: keep the cron *and* add an outside scheduler).** Any scheduler that can send an HTTP request (cron-job.org, UptimeRobot webhooks, a server cron) can start the workflow through GitHub's API, which is steadier than GitHub's own best-effort cron:
+**What keeps it awake now: cron-job.org (my choice).** A cron-job.org job sends `GET https://clinic-booking-api-ixbo.onrender.com/health` every 10 minutes. It needs no token, and it pings from outside Render, so it wakes the service. Its first runs on 24 October all returned `200 OK` in 0.4–1.7 s, so the site stayed warm. The GitHub workflow stays as a backup.
+
+**Also possible: start the workflow from outside.** Any scheduler that can send an HTTP request (cron-job.org, UptimeRobot webhooks, a server cron) can start the workflow through GitHub's API, which is steadier than GitHub's own best-effort cron:
 
 ```bash
 curl -fsS -X POST \
@@ -888,13 +890,12 @@ Done on 2026-10-24:
    gh variable set APP_URL --repo MundatiC/clinic-booking-system --body "https://clinic-booking-api-ixbo.onrender.com"
    ```
 5. **Pipeline run:** `gh workflow run deploy.yml` re-ran CI, called the hook, and the smoke test passed on the live URL. Every merge since has deployed the same way.
-6. **Keep-alive** started with `gh workflow run keepalive.yml`; the cron has run every 10 minutes since.
+6. **Keep-alive** started with `gh workflow run keepalive.yml`. GitHub's cron then ran only every few hours, so I added a **cron-job.org** job that sends `GET /health` every 10 minutes; its runs return `200 OK` in under 2 s.
 7. **Live checks:** security headers, the error envelope, cross-site writes and CORS refused, the forged `X-Forwarded-For` test, and `scripts/live_check.py` (41/41).
 8. **Database expiry** noted: 23 November 2026.
 
 Still open:
 - Emails: the free tier blocks outgoing SMTP (decision 50).
-- An external scheduler for the keep-alive, using the fine-grained token described in [Keep-alive](#keep-alive-free-tier-cold-starts).
 - Optional: require approvals on `main`, and add the Schemathesis, ZAP and CodeQL checks to the required list.
 
 ---
@@ -945,7 +946,7 @@ Questions 1–3 cover what the AI did (the full record is [`AI_LOG.md`](AI_LOG.m
 - **Real Postgres in every test, never SQLite,** because partial unique indexes and real concurrency are what must be tested, including a race with real threads.
 - **State the no-auth risk instead of ignoring it** (§1.8).
 - **The stack and platform:** FastAPI, SQLAlchemy 2.0, Alembic, uv, Docker, GitHub Actions, and Render.
-- **The keep-alive pinger:** Render's free tier sleeps after ~15 idle minutes and a cold start takes up to a minute, so a scheduled ping keeps the demo responsive for reviewers (decision 18). Later I also added an external trigger alongside the cron, so the ping doesn't depend only on GitHub's best-effort scheduler (decision 44).
+- **The keep-alive pinger:** Render's free tier sleeps after ~15 idle minutes and a cold start takes up to a minute, so a scheduled ping keeps the demo responsive for reviewers (decision 18). When GitHub's cron turned out to run only every few hours, I set up a cron-job.org job that pings `/health` every 10 minutes, with the GitHub cron kept as a backup (decision 44).
 
 **My reviews of the AI's work.**
 - **First code review:** a client could fake its IP past the per-IP rate limits (`FORWARDED_ALLOW_IPS="*"` trusted the client-written `X-Forwarded-For` entry), the "change or cancel up to an hour before" text contradicted the code, setup comments still described Resend, emails used the old palette, and *My appointments* showed only 50 visits. I had all but one fixed, and the IP fix was confirmed on the live deploy.

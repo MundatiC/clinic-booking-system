@@ -149,3 +149,7 @@ I gave Claude Code one long, detailed brief: the assessment's verbatim requireme
     - A first draft used `zoneinfo` for Nairobi time; it was changed to a fixed `+03:00` offset because Windows Pythons often lack time-zone data, which would have broken the script for some reviewers.
     - The secret scanner (gitleaks) flagged the demo password in the copy-paste examples. It now appears once, in the README's table, and the examples read it from a variable.
     - The heredoc mistake (entry 35) happened a fifth time in a smaller form: a Python heredoc ate one curl line continuation in the README. It was caught by reading the result back and fixed with the editor tool.
+42. **External keep-alive on cron-job.org (my choice).**
+    - The AI checked the keep-alive runs: GitHub's `*/10` cron had run only every few hours (14:09, 18:23, 21:35, 00:01, 04:31 UTC), so the site slept in between, and a `/health` call took 53 s (a cold start).
+    - I chose cron-job.org. The AI offered two setups: ping `/health` directly, or start the GitHub workflow through its API with a fine-grained token. I set up the direct ping every 10 minutes, which keeps any token off a third-party site.
+    - The job's test run reported "too much data". `/health` returns 68 bytes, so the likely cause was Render's page for a service that is still waking; the request still wakes it. The scheduled runs from 13:00 on 24 October all returned `200 OK` in 0.4–1.7 s.
