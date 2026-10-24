@@ -459,7 +459,7 @@ The spec defines **no authentication**. The real consequence is that **anyone wh
 | 15 | Postgres everywhere, including tests | SQLite for tests | Partial unique indexes, `FOR UPDATE` and real concurrency semantics must be what's tested |
 | 16 | Minimal `appointment_events` audit table | None (growth item) | Cheap (same transaction), and preserves reschedule history |
 | 17 | No availability cache | TTL cache | 2 indexed queries per request at this scale. A cache adds invalidation bugs for no measurable gain |
-| 18 | **Keep-alive pinger**: a scheduled GitHub Action hits `/health` every 10 min. **My decision** (made without AI) | Paid always-on instance; accept cold starts; external uptime monitor | Trade-offs in [Keep-alive](#keep-alive-free-tier-cold-starts). Why I trusted my own judgment: `TODO(Caleb)` |
+| 18 | **Keep-alive pinger**: a scheduled GitHub Action hits `/health` every 10 min. **My decision** (made without AI) | Paid always-on instance; accept cold starts; external uptime monitor | Trade-offs in [Keep-alive](#keep-alive-free-tier-cold-starts). It keeps the demo responsive for reviewers |
 | 19 | Small in-process rate limiter (sliding window, per IP, DI-injected) instead of `slowapi` | `slowapi`; edge/WAF only | `slowapi` binds limits at import time through a global decorator and needs a `request` param on every endpoint, which makes per-test config awkward. The same in-memory caveat applies either way |
 | 20 | No `SELECT` "is it free?" pre-check before insert | Pre-check for a friendlier error | The unique-violation path already returns the same friendly 409, and a pre-check would add a query and a false sense of safety |
 | 21 | No separate plain `(patient_id, start_at)` index | Add it as the brief suggested | `uq_appointments_patient_slot` (partial, same columns) already serves the upcoming-appointments query. Verified with EXPLAIN below. A second index would only cost writes |
@@ -497,7 +497,7 @@ The spec defines **no authentication**. The real consequence is that **anyone wh
 
 ## Decisions I made
 
-These calls were mine. Where I chose from options the AI offered, the row says so. My own-words answers for Section 4 are still marked `TODO(Caleb)`.
+These calls were mine. Where I chose from options the AI offered, the row says so. Section 4, question 4 groups them.
 
 | Decision | How it was made | Where |
 |---|---|---|
@@ -908,7 +908,7 @@ Still open:
 - **Section 1 (design):** my brief already fixed the main decisions: computed slots, partial unique indexes, UUIDs, UTC storage with Nairobi-local hours, row locks, Render, and Postgres-only tests. The AI wrote the design document around them, drew the ER diagram, and proposed the secondary rules: 422 vs 409, `APPOINTMENT_STARTED`, `PATIENT_EXISTS`, empty availability beyond the horizon, and sync SQLAlchemy.
 - **Section 2 (API):** the AI wrote all application code and the 121 tests, ran them against Postgres, and fixed what they exposed.
 - **Section 3 (deployment):** the AI wrote the Dockerfile, compose, CI/deploy/keep-alive workflows, the smoke and keep-alive scripts and `render.yaml`. It resolved action versions to commit SHAs via the GitHub API, verified `docker compose up` from a fresh clone, and ran EXPLAIN on a loaded database. I created the Render service and set its secrets.
-- **Section 4:** the AI kept `AI_LOG.md` during the work and drafted this reflection from it. The parts that need my own reasoning are marked `TODO(Caleb)`.
+- **Section 4:** the AI kept `AI_LOG.md` during the work and drafted this reflection from it. Question 4 lists my own decisions.
 - **Phase 2 (after the core was merged):** I asked for auth, a UI, email, and security testing tools.
   - The AI wrote the account system, email templates, UI, security tests, and the scanner workflows.
   - The *frontend-design* skill guided its first UI pass.
@@ -932,7 +932,29 @@ A second, smaller one: the AI proposed proving the concurrency test is meaningfu
 - **Phase 2: caught by me.** A CodeQL JavaScript job failed on PR #7 because the AI had enabled JS analysis on a branch with no JS yet. I spotted it from a GitHub email, and the job was moved to the UI PR.
 - **Phase 2: a tooling mistake made twice.** Backslash escapes sent through shell heredocs reached files as literal text (`\n` inside a Dockerfile `RUN`) or as raw control bytes in a regex. The AI changed how it edits files after the second time.
 
-**4. Two decisions made without AI**
+**4. Decisions made without AI**
 
-- **Keep-alive pinger** (decision 18). Why I trusted my own judgment here: `TODO(Caleb)`: in your own words.
-- **Second decision:** `TODO(Caleb)`: pick one that was genuinely yours before the session and explain it in your own words. Candidates that appear in your brief, so the AI did not originate them (only you know whether you decided them unaided): using real Postgres instead of SQLite for tests; enforcing double-booking prevention in the database rather than in application code; non-enumerable UUIDs for patients and appointments; computing slots instead of storing them; Render + GitHub Actions as the platform. From phase 2, these were my own ideas rather than AI suggestions: using **Resend** for email, triggering the keep-alive from an **external service**, and spotting that required email confirmation would block every reviewer on the demo (the fix was then picked from options, decision 45). The full list is in [Decisions I made](#decisions-i-made). Keeping the cron as well, and the auth approach (password + sessions), were chosen by me *from options the AI proposed*, so they may not count as "without AI".
+Questions 1–3 cover what the AI did (the full record is [`AI_LOG.md`](AI_LOG.md)). These are my own decisions.
+
+**Architecture, set in my original brief before any code was written.** The AI designed and built around these; it did not choose them.
+- **Slots are computed from working hours, not stored:** no cron to keep slot rows generated, and no drift when hours change (§1.3).
+- **The database prevents double booking,** with a partial unique index on `(doctor_id, start_at) WHERE status = 'booked'`, because an application-level check-then-insert races. A second index stops one patient holding two appointments at the same time (§1.4).
+- **Non-enumerable UUIDs** for patients and appointments, so ids can't be guessed (IDOR); small integers for the 5 public doctors.
+- **Time zones:** store UTC, read working hours in `Africa/Nairobi`, generate slots in local time first, and reject datetimes without an offset (§1.5).
+- **Reschedule updates the same row,** same doctor only, in one transaction, so the old slot is freed atomically.
+- **Real Postgres in every test, never SQLite,** because partial unique indexes and real concurrency are what must be tested, including a race with real threads.
+- **State the no-auth risk instead of ignoring it** (§1.8).
+- **The stack and platform:** FastAPI, SQLAlchemy 2.0, Alembic, uv, Docker, GitHub Actions, and Render.
+- **The keep-alive pinger:** Render's free tier sleeps after ~15 idle minutes and a cold start takes up to a minute, so a scheduled ping keeps the demo responsive for reviewers (decision 18). Later I also added an external trigger alongside the cron, so the ping doesn't depend only on GitHub's best-effort scheduler (decision 44).
+
+**My reviews of the AI's work.**
+- **First code review:** a client could fake its IP past the per-IP rate limits (`FORWARDED_ALLOW_IPS="*"` trusted the client-written `X-Forwarded-For` entry), the "change or cancel up to an hour before" text contradicted the code, setup comments still described Resend, emails used the old palette, and *My appointments* showed only 50 visits. I had all but one fixed, and the IP fix was confirmed on the live deploy.
+- **Second code review:** staff could never book for a patient who had signed up online, because `POST /patients` answered `409 PATIENT_EXISTS` without the id; the 409 now carries it. Four unused ORM relationships were deleted.
+- **UI review:** contrast below AA on two labels, a phone row snapping to the screen edge, an evening Book page full of dead times, an empty-looking first screen, oversized titles, and a second accent colour. All fixed; I chose a phone menu and kept the cream background.
+
+**Email, start to finish.**
+- **Resend** for production email, with a local catcher (Mailpit) and templates for every account and booking event.
+- I spotted that Resend without a verified domain would block every reviewer at sign-up ("that confirming thing will not be practical"). So I made confirmation optional on the demo and switched to **Gmail SMTP**, which needs no domain (decisions 45–46).
+- On the first deploy, I noticed no email arrived: Render's free tier blocks outgoing SMTP ports. I chose to **leave it that way** and document it, since it's "a proof of concept really since it does work locally" (decision 50).
+
+**Other calls:** deferring Render until the app was finished; adding a booking page; redesigning it from Google Stitch while keeping the export out of the repo and dropping its made-up details; and organising this README for reviewers, with the live API tested end to end. All of them are in [Decisions I made](#decisions-i-made).
