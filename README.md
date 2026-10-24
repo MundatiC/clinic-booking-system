@@ -157,6 +157,12 @@ It asks for the passwords and never prints them.
 
 Not part of the brief: https://clinic-booking-api-ixbo.onrender.com/ is a static client of the same API on the same origin, so everything it does goes through the endpoints above. Sign in with the demo patient, pick a doctor and a day, book, then change the time or cancel under *My appointments*. New accounts can sign up on the page and sign in at once on the demo (decision 45). Staff sign in to a day schedule per doctor. Details are in [The booking UI](#the-booking-ui).
 
+| Book: pick a doctor, a day and a free time | My appointments: change time or cancel | Staff: a doctor's day |
+|---|---|---|
+| ![Book page with a doctor, a day and the 10:00 slot selected](docs/images/book.jpg) | ![My appointments listing three upcoming visits](docs/images/my-appointments.jpg) | ![Staff day schedule with three bookings](docs/images/staff-schedule.jpg) |
+
+Screenshots from the local Docker stack, 24 October 2026.
+
 ---
 
 ## Locally (Docker, one command)
@@ -221,21 +227,25 @@ This section was written and committed before any application code: [`249dc60 do
 
 ```mermaid
 flowchart TD
-    client["Clients: Swagger, curl, Postman, the booking page"] -->|HTTPS| mw
-    subgraph app["FastAPI app: one Docker container on Render"]
-        mw["Middleware: request id, security headers, body-size limit, CORS allowlist, rate limits, JSON access log"]
-        api["API layer (app/api): validates input with Pydantic, calls services, shapes responses. No business rules"]
-        svc["Service layer (app/services): slot grid, working hours, lead time, advance window, cancel and reschedule rules, availability"]
-        repo["Repository layer (app/repositories): SQLAlchemy queries only, row locks, unique violations mapped to domain errors"]
-        clock["Clock, injected"]
+    client["Clients<br/>Swagger · curl · Postman · booking page"] -->|HTTPS| mw
+    subgraph app["FastAPI app · one Docker container on Render"]
+        mw["Middleware<br/>request id · security headers<br/>body limit · CORS · rate limits"]
+        api["API layer · app/api<br/>validation, responses"]
+        svc["Service layer · app/services<br/>booking rules, availability"]
+        repo["Repository layer · app/repositories<br/>queries, row locks"]
         mw --> api --> svc --> repo
-        clock -.-> svc
     end
-    repo --> db[("PostgreSQL: partial unique indexes make each slot bookable once")]
-    svc -.->|emails, after the response| smtp["SMTP: Mailpit locally"]
-    gha["GitHub Actions: CI on every PR, deploy on merge to main"] -->|deploy hook| app
-    ping["cron-job.org, GitHub keep-alive as backup"] -->|GET /health every 10 min| mw
+    clock["Clock, injected"] -.-> svc
+    repo --> db[("PostgreSQL<br/>partial unique indexes:<br/>a slot is booked once")]
+    svc -.->|email after the response| smtp["SMTP<br/>Mailpit locally"]
+    gha["GitHub Actions<br/>CI on PRs · deploy on merge"] -->|deploy hook| app
+    ping["cron-job.org<br/>+ GitHub keep-alive"] -->|GET /health, 10 min| mw
 ```
+
+- **API layer** (`app/api`): parses and validates input with Pydantic, calls a service, shapes the response. No business rules.
+- **Service layer** (`app/services`): the booking rules (slot grid, working hours, lead time, advance window, cancel and reschedule) and availability. "Now" comes from an injected Clock.
+- **Repository layer** (`app/repositories`): SQLAlchemy queries only, row locks (`FOR UPDATE`), and unique violations translated into domain errors.
+- **PostgreSQL** is the source of truth for "a slot can be booked once" (§1.4).
 
 Cross-cutting (`app/core/`):
 
