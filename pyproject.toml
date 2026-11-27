@@ -5,25 +5,25 @@ requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.20.1",
     "argon2-cffi>=25.1.0",
-    "email-validator>=2.3.0",
-    "fastapi>=0.161.1",
+    "email-validator>=2.4.0",
+    "fastapi>=0.165.0",
     "psycopg[binary]>=3.3.6",
-    "pydantic-settings>=2.16.1",
-    "sqlalchemy>=2.1.6",
-    "tzdata>=2026.5",
+    "pydantic-settings>=2.16.3",
+    "sqlalchemy>=2.1.9",
+    "tzdata>=2026.6",
     "uvicorn[standard]>=0.54.0",
 ]
 
 [dependency-groups]
 dev = [
     "bandit>=1.9.4",
-    "httpx2>=2.16.0",
-    "mypy>=2.4.0",
+    "httpx2>=2.16.2",
+    "mypy>=2.4.1",
     "pip-audit>=2.10.1",
-    "pytest>=9.1.1",
+    "pytest>=9.2.0",
     "pytest-cov>=7.1.0",
-    "ruff>=0.17.2",
-    "schemathesis>=4.32.4",
+    "ruff>=0.17.6",
+    "schemathesis>=4.33.4",
 ]
 
 [tool.uv]
